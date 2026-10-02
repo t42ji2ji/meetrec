@@ -31,6 +31,14 @@ final class Recorder {
     private let writeQueue = DispatchQueue(label: "recorder.write")
     private var flushTimer: DispatchSourceTimer?
     private var micListener: AudioObjectPropertyListenerBlock?
+    private var paused = false
+
+    /// 暫停時丟掉收到的聲音，檔案裡直接接續
+    func setPaused(_ p: Bool) {
+        lock.lock()
+        paused = p
+        lock.unlock()
+    }
 
     init(browser: Browser, url: URL) throws {
         self.browser = browser
@@ -138,13 +146,14 @@ final class Recorder {
         let m = micData.assumingMemoryBound(to: Float.self)
         let t = tabData.assumingMemoryBound(to: Float.self)
         lock.lock()
+        defer { lock.unlock() }
+        if paused { return }
         for i in 0..<n {
             micBuf.append(m[i * micCh])
             var s: Float = 0
             for c in 0..<tabCh { s += t[i * tabCh + c] }
             tabBuf.append(s / Float(tabCh))
         }
-        lock.unlock()
     }
 
     private func flush() {

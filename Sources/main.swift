@@ -12,7 +12,7 @@ final class PromptPanel: NSPanel {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
-        hasShadow = true
+        hasShadow = false
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isMovableByWindowBackground = true
@@ -74,7 +74,7 @@ final class PromptPanel: NSPanel {
         let size = stack.fittingSize
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
         let f = screen.visibleFrame
-        setFrame(NSRect(x: (f.midX - size.width / 2).rounded(), y: (f.midY - size.height / 2 + f.height * 0.15).rounded(),
+        setFrame(NSRect(x: (f.midX - size.width / 2).rounded(), y: (f.maxY - f.height * 0.16 - size.height).rounded(),
                         width: size.width, height: size.height), display: true)
         invalidateShadow()
 
@@ -149,6 +149,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var recorder: Recorder?
     private var recordingStart = Date()
+    private var pausedAt: Date?
+    private var pausedTotal: TimeInterval = 0
     private var clock: Timer?
     private let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/會議錄音")
 
@@ -191,6 +193,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try r.start()
             recorder = r
             recordingStart = Date()
+            pausedAt = nil
+            pausedTotal = 0
             clock = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.updateStatus() }
         } catch {
             panel.show(symbol: "exclamationmark.triangle.fill", title: "無法開始錄音", subtitle: "\(error)", buttons: [("好", true, {})])
@@ -208,13 +212,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                    buttons: [("在 Finder 顯示", false, { NSWorkspace.shared.activateFileViewerSelecting([r.url]) })], hideAfter: 4)
     }
 
+    private func togglePause() {
+        if let p = pausedAt {
+            pausedTotal += Date().timeIntervalSince(p)
+            pausedAt = nil
+        } else {
+            pausedAt = Date()
+        }
+        recorder?.setPaused(pausedAt != nil)
+        updateStatus()
+    }
+
     private func updateStatus() {
         guard let button = statusItem.button else { return }
         if recorder != nil {
-            let s = Int(Date().timeIntervalSince(recordingStart))
+            let now = Date()
+            let s = Int(now.timeIntervalSince(recordingStart) - pausedTotal - (pausedAt.map { now.timeIntervalSince($0) } ?? 0))
             button.image = nil
-            button.attributedTitle = NSAttributedString(string: String(format: "● %02d:%02d", s / 60, s % 60), attributes: [
-                .foregroundColor: NSColor.systemRed,
+            button.attributedTitle = NSAttributedString(string: String(format: "%@ %02d:%02d", pausedAt == nil ? "●" : "❚❚", s / 60, s % 60), attributes: [
+                .foregroundColor: pausedAt == nil ? NSColor.systemRed : NSColor.secondaryLabelColor,
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
             ])
         } else {
@@ -224,6 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         if recorder != nil {
+            menu.addItem(MenuItem(pausedAt == nil ? "暫停" : "繼續錄音") { [weak self] in self?.togglePause() })
             menu.addItem(MenuItem("停止並存檔") { [weak self] in self?.stop() })
         } else if let b = detector.current {
             menu.addItem(MenuItem("錄音（\(b.name)）") { [weak self] in self?.start(b) })
