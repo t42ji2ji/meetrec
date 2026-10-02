@@ -1,0 +1,7 @@
+build/
+spike/*.f32
+spike/*.wav
+spike/*.log
+spike/micwatch
+spike/recspike
+spike/RecSpike.app/
