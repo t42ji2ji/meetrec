@@ -1,10 +1,12 @@
 import AppKit
 import AVFoundation
+import ServiceManagement
 
-/// 畫面中央的半透明提示面板，不搶焦點
+/// 畫面中央的半透明提示面板（深色膠囊），不搶焦點
 final class PromptPanel: NSPanel {
     private let effect = NSVisualEffectView()
     private var autoHide: DispatchWorkItem?
+    private let radius: CGFloat = 22
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -14,12 +16,19 @@ final class PromptPanel: NSPanel {
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isMovableByWindowBackground = true
+        appearance = NSAppearance(named: .vibrantDark)
         effect.material = .hudWindow
         effect.blendingMode = .behindWindow
         effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 18
-        effect.layer?.masksToBounds = true
+        // 用 maskImage 裁圓角，視窗陰影才會跟著圓角走
+        let r = radius
+        let mask = NSImage(size: NSSize(width: r * 2 + 1, height: r * 2 + 1), flipped: false) { rect in
+            NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill()
+            return true
+        }
+        mask.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
+        mask.resizingMode = .stretch
+        effect.maskImage = mask
         contentView = effect
     }
 
@@ -27,33 +36,32 @@ final class PromptPanel: NSPanel {
         effect.subviews.forEach { $0.removeFromSuperview() }
 
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)!)
-        icon.symbolConfiguration = .init(pointSize: 30, weight: .regular)
+        icon.symbolConfiguration = .init(pointSize: 28, weight: .regular)
         icon.contentTintColor = .systemRed
         let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.textColor = .white
         let subLabel = NSTextField(labelWithString: subtitle)
         subLabel.font = .systemFont(ofSize: 12)
-        subLabel.textColor = .secondaryLabelColor
+        subLabel.textColor = NSColor.white.withAlphaComponent(0.6)
+        subLabel.lineBreakMode = .byTruncatingMiddle
         let text = NSStackView(views: [titleLabel, subLabel])
         text.orientation = .vertical
         text.alignment = .leading
-        text.spacing = 3
-        let header = NSStackView(views: [icon, text])
-        header.spacing = 12
+        text.spacing = 2
 
-        let buttonViews = buttons.map { (label, primary, action) -> NSButton in
-            let b = ClosureButton(title: label, action: { [weak self] in self?.dismiss(); action() })
-            b.controlSize = .large
-            if primary { b.bezelColor = .systemRed; b.keyEquivalent = "\r" }
-            return b
+        let pills = buttons.map { (label, primary, action) in
+            PillButton(title: label, primary: primary) { [weak self] in self?.dismiss(); action() }
         }
-        let row = NSStackView(views: buttonViews.reversed())
+        let row = NSStackView(views: pills)
         row.spacing = 8
-        let stack = NSStackView(views: [header, row])
-        stack.orientation = .vertical
-        stack.alignment = .trailing
-        stack.spacing = 16
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 22, bottom: 18, right: 22)
+
+        let stack = NSStackView(views: [icon, text, row])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 12
+        stack.setCustomSpacing(28, after: text)
+        stack.edgeInsets = NSEdgeInsets(top: 16, left: 18, bottom: 16, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
         effect.addSubview(stack)
         NSLayoutConstraint.activate([
@@ -61,13 +69,14 @@ final class PromptPanel: NSPanel {
             stack.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
             stack.topAnchor.constraint(equalTo: effect.topAnchor),
             stack.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
-            stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 340),
         ])
 
         let size = stack.fittingSize
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
         let f = screen.visibleFrame
-        setFrame(NSRect(x: f.midX - size.width / 2, y: f.midY - size.height / 2 + f.height * 0.12, width: size.width, height: size.height), display: true)
+        setFrame(NSRect(x: (f.midX - size.width / 2).rounded(), y: (f.midY - size.height / 2 + f.height * 0.15).rounded(),
+                        width: size.width, height: size.height), display: true)
+        invalidateShadow()
 
         autoHide?.cancel()
         alphaValue = 0
@@ -87,17 +96,51 @@ final class PromptPanel: NSPanel {
     }
 }
 
-final class ClosureButton: NSButton {
-    private var handler: () -> Void = {}
-    convenience init(title: String, action: @escaping () -> Void) {
-        self.init(frame: .zero)
-        self.title = title
-        bezelStyle = .rounded
+/// 膠囊按鈕：主要＝紅底，次要＝半透明白底；hover 變亮、按下變暗
+final class PillButton: NSView {
+    private let label = NSTextField(labelWithString: "")
+    private let primary: Bool
+    private let handler: () -> Void
+    private var hovering = false { didSet { updateColor() } }
+    private var pressing = false { didSet { updateColor() } }
+
+    init(title: String, primary: Bool, action: @escaping () -> Void) {
+        self.primary = primary
         handler = action
-        target = self
-        self.action = #selector(fire)
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 15
+        label.stringValue = title
+        label.font = .systemFont(ofSize: 13, weight: primary ? .semibold : .medium)
+        label.textColor = .white
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: 30),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+        ])
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        updateColor()
     }
-    @objc private func fire() { handler() }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func updateColor() {
+        let base: NSColor = primary ? .systemRed : NSColor.white.withAlphaComponent(0.14)
+        let c = pressing ? base.shadow(withLevel: 0.2)! : hovering ? base.highlight(withLevel: primary ? 0.15 : 0.12)! : base
+        layer?.backgroundColor = c.cgColor
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; pressing = false }
+    override func mouseDown(with event: NSEvent) { pressing = true }
+    override func mouseUp(with event: NSEvent) {
+        pressing = false
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { handler() }
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -111,6 +154,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ note: Notification) {
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
+        if !UserDefaults.standard.bool(forKey: "didSetupLogin") {
+            try? SMAppService.mainApp.register()
+            UserDefaults.standard.set(true, forKey: "didSetupLogin")
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         updateStatus()
         detector.onChange = { [weak self] b in self?.browserChanged(b) }
@@ -121,13 +168,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if recorder == nil {
             if let b {
                 panel.show(symbol: "waveform.circle.fill", title: "要錄下這場會議嗎？", subtitle: "\(b.name) 正在使用麥克風",
-                           buttons: [("錄音", true, { [weak self] in self?.start(b) }), ("不用", false, {})])
+                           buttons: [("不用", false, {}), ("錄音", true, { [weak self] in self?.start(b) })])
             } else {
                 panel.dismiss()
             }
         } else if b == nil {
             panel.show(symbol: "stop.circle.fill", title: "會議好像結束了", subtitle: "瀏覽器已停止使用麥克風",
-                       buttons: [("停止並存檔", true, { [weak self] in self?.stop() }), ("繼續錄", false, {})])
+                       buttons: [("繼續錄", false, {}), ("停止並存檔", true, { [weak self] in self?.stop() })])
         } else {
             panel.dismiss()
         }
@@ -186,6 +233,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        let login = MenuItem("登入時自動啟動") { [weak self] in
+            let svc = SMAppService.mainApp
+            if svc.status == .enabled { try? svc.unregister() } else { try? svc.register() }
+            self?.updateStatus()
+        }
+        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(login)
         menu.addItem(MenuItem("打開錄音資料夾") { [weak self] in
             guard let self else { return }
             try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)
