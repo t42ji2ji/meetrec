@@ -18,6 +18,7 @@ struct DashboardView: View {
                 Button { model.importWithPanel() } label: { Label("匯入…", systemImage: "square.and.arrow.down") }
                     .help("匯入音檔或影片（也可以直接拖進視窗）")
             }
+            ToolbarItem(placement: .primaryAction) { RecordButton() }
             // 放在最外層、一直都在：切換錄音時工具列不用重建
             ToolbarItemGroup(placement: .primaryAction) {
                 let r = model.selectedRecording
@@ -509,5 +510,21 @@ private struct PlayerBar: View {
         .padding(.vertical, 10)
         .disabled(player.url == nil)
         .background(.bar)
+    }
+}
+
+/// 工具列的開始／停止錄音
+private struct RecordButton: View {
+    @ObservedObject private var library = Library.shared
+
+    var body: some View {
+        if library.live == nil {
+            Button { library.startLive() } label: { Label("開始錄音", systemImage: "record.circle") }
+                .help("開始錄音：瀏覽器在開會就連會議聲音一起錄，否則只錄麥克風")
+        } else {
+            Button { library.stopLive() } label: { Label("停止並存檔", systemImage: "stop.circle.fill") }
+                .help("停止錄音並存檔")
+                .tint(.red)
+        }
     }
 }

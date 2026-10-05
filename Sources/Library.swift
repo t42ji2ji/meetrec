@@ -41,6 +41,8 @@ final class Library: ObservableObject {
     /// 錄音中的暫停／繼續、停止並存檔（AppDelegate 設定）
     var toggleLivePause: () -> Void = {}
     var stopLive: () -> Void = {}
+    /// 主動開始錄音：有瀏覽器在開會就錄它，沒有就只錄麥克風（AppDelegate 設定）
+    var startLive: () -> Void = {}
     /// 有逐字稿存檔就 +1（轉錄完成、手動修正），畫面靠它重新讀逐字稿
     @Published private(set) var revision = 0
     /// 每次逐字稿轉完（主執行緒）

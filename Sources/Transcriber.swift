@@ -31,11 +31,13 @@ enum Transcriber {
         var t: Transcript
         // 標記可能跟著轉檔被複製到單聲道檔，所以也要確認是雙聲道
         let probe = try run(ffprobe, ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels:format_tags=comment", "-of", "default=nw=1", audio.path])
-        if probe.contains(tag), probe.contains("channels=2") {
-            let mic = try extract(audio, ["-af", "pan=mono|c0=c0"], tmp.appendingPathComponent("mic"))
-            let tab = try extract(audio, ["-af", "pan=mono|c0=c1"], tmp.appendingPathComponent("tab"))
+        let mic = probe.contains(tag) && probe.contains("channels=2") ? try extract(audio, ["-af", "pan=mono|c0=c0"], tmp.appendingPathComponent("mic")) : nil
+        let tab = mic == nil ? nil : try extract(audio, ["-af", "pan=mono|c0=c1"], tmp.appendingPathComponent("tab"))
+        let tabDB = tab.map { levels($0.pcm) } ?? []
+        // 瀏覽器聲道整場沒聲音＝只錄了麥克風（主動開始錄音），麥克風裡的人要靠分說話者
+        if let mic, let tab, (tabDB.max() ?? -120) > -50 {
             let turns = diarizeInBackground(tab.wav)
-            let micDB = levels(mic.pcm), tabDB = levels(tab.pcm)
+            let micDB = levels(mic.pcm)
             // 麥克風比瀏覽器小聲的句子是旁人或喇叭漏進麥克風的聲音，不是我
             let me = try recognize(mic.wav) { progress($0 * 0.3) }
                 .filter { loudness(micDB, $0) > loudness(tabDB, $0) }
@@ -46,7 +48,7 @@ enum Transcriber {
             t = Transcript(segments: me.map { .init(start: $0.start, end: $0.end, speaker: "me", text: $0.text) } + who.segments,
                            speakers: who.names.merging(["me": "我"]) { a, _ in a })
         } else {
-            let mono = try extract(audio, ["-ac", "1"], tmp.appendingPathComponent("mono"))
+            let mono = try mic ?? extract(audio, ["-ac", "1"], tmp.appendingPathComponent("mono"))
             let turns = diarizeInBackground(mono.wav)
             let lines = try recognize(mono.wav) { progress($0 * 0.9) }
             let who = label(lines, turns: try turns.wait(), prefix: "s", single: "")
@@ -76,7 +78,8 @@ enum Transcriber {
         }
         let json = try JSONDecoder().decode(WhisperJSON.self, from: Data(contentsOf: out.appendingPathExtension("json")))
         return json.transcription.compactMap { s in
-            let text = s.text.trimmingCharacters(in: .whitespaces)
+            // whisper 中文有時輸出簡體，一律轉成繁體
+            let text = (s.text.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? s.text).trimmingCharacters(in: .whitespaces)
             return text.isEmpty ? nil : (Double(s.offsets.from) / 1000, Double(s.offsets.to) / 1000, text)
         }
     }

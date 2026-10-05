@@ -22,7 +22,8 @@ final class Recorder {
     let url: URL
     /// 出狀況時給使用者看的訊息，恢復後傳 nil（主執行緒）
     var onProblem: ((String?) -> Void)?
-    private let browser: Browser
+    /// nil＝只錄麥克風（實體會議、其他 app 的通話），右聲道是靜音
+    private let browser: Browser?
     private var tapID = AudioObjectID(0)
     private var aggID = AudioObjectID(0)
     private var procID: AudioDeviceIOProcID?
@@ -51,7 +52,7 @@ final class Recorder {
         lock.unlock()
     }
 
-    init(browser: Browser, url: URL) throws {
+    init(browser: Browser?, url: URL) throws {
         self.browser = browser
         self.url = url.deletingPathExtension().appendingPathExtension("aac")
         file = try AVAudioFile(forWriting: self.url, settings: [
@@ -63,7 +64,7 @@ final class Recorder {
     }
 
     func start() throws {
-        try startSession(requireBrowser: true)
+        try startSession(requireBrowser: browser != nil)
         let t = DispatchSource.makeTimerSource(queue: writeQueue)
         t.schedule(deadline: .now() + 0.5, repeating: 0.5)
         t.setEventHandler { [weak self] in self?.flush() }
@@ -145,7 +146,8 @@ final class Recorder {
     }
 
     private func browserProcesses() -> [AudioObjectID] {
-        processObjects().filter { (getString($0, kAudioProcessPropertyBundleID) ?? "").hasPrefix(browser.bundlePrefix) }
+        guard let browser else { return [] }
+        return processObjects().filter { (getString($0, kAudioProcessPropertyBundleID) ?? "").hasPrefix(browser.bundlePrefix) }
     }
 
     /// 任何執行緒都可以呼叫；同樣的訊息只報一次

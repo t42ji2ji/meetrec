@@ -70,6 +70,14 @@ final class TranscriptEditor: ObservableObject {
         return s.id
     }
 
+    /// 這個人的每一段發言（連續講的算一段）：開始時間和開頭幾個字
+    func turns(of speaker: String) -> [(id: UUID, start: Double, preview: String)] {
+        rows.filter { $0.isHead && $0.segment.speaker == speaker }.map { row in
+            let text = row.turn.compactMap { index[$0].map { transcript.segments[$0].text } }.joined(separator: "，")
+            return (row.id, row.segment.start, String(text.prefix(30)))
+        }
+    }
+
     /// 出場順序，加上新增了但還沒用到的
     var speakerKeys: [String] {
         let order = transcript.speakerOrder
@@ -198,6 +206,8 @@ struct TranscriptView: View {
     @State private var nameText = ""
     @State private var userScrolledAt = Date.distantPast
     @State private var addingFor: [UUID]?
+    /// 從說話者發言清單跳過去的那一句，捲到它
+    @State private var jumpTo: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -227,6 +237,11 @@ struct TranscriptView: View {
                 .onScrollPhaseChange { old, new in
                     // 使用者自己捲過就先不要自動捲回播放位置
                     if [old, new].contains(where: { $0 == .interacting || $0 == .decelerating }) { userScrolledAt = Date() }
+                }
+                .onChange(of: jumpTo) { _, id in
+                    guard let id else { return }
+                    withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(id, anchor: .center) }
+                    jumpTo = nil
                 }
                 .onReceive(editor.playing.$id.removeDuplicates()) { id in
                     guard let id, player.isPlaying, editingID == nil, Date().timeIntervalSince(userScrolledAt) > 4 else { return }
@@ -276,9 +291,14 @@ struct TranscriptView: View {
                             LegendName(name: editor.displayName(key), key: key) { renameSpeaker(key) }
                         }
                         let t = editor.talk[key] ?? 0
-                        Text("\(Transcript.clock(t)) · \(Int((t / total * 100).rounded()))%")
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                        TalkTimeButton(label: "\(Transcript.clock(t)) · \(Int((t / total * 100).rounded()))%",
+                                       turns: { editor.turns(of: key) }) { turn in
+                            focus = nil
+                            userScrolledAt = .distantPast
+                            jumpTo = turn.id
+                            player.seek(turn.start)
+                            player.play()
+                        }
                     }
                 }
             }
@@ -360,6 +380,70 @@ final class CaretPlacer {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
         point = nil
+    }
+}
+
+/// 說話者統計上的時長：點一下列出這個人每段發言，點一段就跳過去播
+private struct TalkTimeButton: View {
+    typealias Turn = (id: UUID, start: Double, preview: String)
+    let label: String
+    let turns: () -> [Turn]
+    let jump: (Turn) -> Void
+    @State private var showing = false
+    @State private var hovering = false
+
+    var body: some View {
+        Button { showing = true } label: {
+            Text(label)
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(hovering || showing ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                .underline(hovering)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .pointerStyle(.link)
+        .help("看這個人每段發言，點一段跳過去")
+        .popover(isPresented: $showing, arrowEdge: .bottom) {
+            let list = turns()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(list, id: \.id) { turn in
+                        TurnRow(turn: turn) {
+                            showing = false
+                            jump(turn)
+                        }
+                    }
+                }
+                .padding(6)
+            }
+            .frame(width: 340, height: min(CGFloat(list.count) * 30 + 12, 360))
+        }
+    }
+}
+
+private struct TurnRow: View {
+    let turn: TalkTimeButton.Turn
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(Transcript.clock(turn.start))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 52, alignment: .trailing)
+                Text(turn.preview)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 30)
+            .contentShape(Rectangle())
+            .background(hovering ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
     }
 }
 

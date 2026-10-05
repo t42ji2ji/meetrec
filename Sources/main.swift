@@ -200,6 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         library.onTranscribed = { [weak self] url, result in self?.transcribed(url, result) }
         library.toggleLivePause = { [weak self] in self?.togglePause() }
         library.stopLive = { [weak self] in self?.stop() }
+        library.startLive = { [weak self] in self?.start(self?.detector.current) }
         recoverInterrupted()
     }
 
@@ -244,13 +245,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatus()
     }
 
-    private func start(_ b: Browser) {
+    /// b 是 nil 就只錄麥克風
+    private func start(_ b: Browser?) {
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd HH-mm"
         let date = df.string(from: Date())
         var url: URL?
         do {
-            url = try Recorder.newURL(in: folder, name: "\(date) \(b.name)")
+            url = try Recorder.newURL(in: folder, name: "\(date) \(b?.name ?? "錄音")")
             let r = try Recorder(browser: b, url: url!)
             r.onProblem = { [weak self] message in self?.recordingProblem(message) }
             try r.start()
@@ -260,10 +262,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pausedAt = nil
             pausedTotal = 0
             clock = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.updateStatus() } }
-            meeting = (b, date, nil)
-            // 錄音先開始再讀會議標題：第一次會跳自動化權限詢問，也可能還沒進會議室；讀不到就每 30 秒再試
-            lookupTitle()
-            titleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.lookupTitle() } }
+            if let b {
+                meeting = (b, date, nil)
+                // 錄音先開始再讀會議標題：第一次會跳自動化權限詢問，也可能還沒進會議室；讀不到就每 30 秒再試
+                lookupTitle()
+                titleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.lookupTitle() } }
+            }
         } catch {
             // 沒錄成就別留下空資料夾（裡面只有剛建的空 .aac）
             if let url { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -361,12 +365,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if recorder != nil {
             menu.addItem(MenuItem(pausedAt == nil ? "暫停" : "繼續錄音") { [weak self] in self?.togglePause() })
             menu.addItem(MenuItem("停止並存檔") { [weak self] in self?.stop() })
-        } else if let b = detector.current {
-            menu.addItem(MenuItem("錄音（\(b.name)）") { [weak self] in self?.start(b) })
         } else {
-            let item = NSMenuItem(title: "沒有偵測到會議", action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
+            let b = detector.current
+            menu.addItem(MenuItem(b.map { "開始錄音（\($0.name)）" } ?? "開始錄音（只錄麥克風）") { [weak self] in self?.start(b) })
         }
         if !library.status.isEmpty {
             let item = NSMenuItem(title: "正在轉逐字稿…", action: nil, keyEquivalent: "")
