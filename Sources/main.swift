@@ -143,6 +143,7 @@ final class PillButton: NSView {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let detector = Detector()
     private let panel = PromptPanel()
@@ -152,10 +153,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pausedAt: Date?
     private var pausedTotal: TimeInterval = 0
     private var clock: Timer?
-    private var transcribing = 0
     private var problem: String?
-    private lazy var transcribeWindow = TranscribeWindow(recordings: folder)
-    private let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/會議錄音")
+    private let library = Library.shared
+    private var folder: URL { library.folder }
 
     func applicationDidFinishLaunching(_ note: Notification) {
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
@@ -167,6 +167,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatus()
         detector.onChange = { [weak self] b in self?.browserChanged(b) }
         detector.start()
+        library.onTranscribed = { [weak self] url, result in self?.transcribed(url, result) }
+        library.toggleLivePause = { [weak self] in self?.togglePause() }
+        library.stopLive = { [weak self] in self?.stop() }
         recoverInterrupted()
     }
 
@@ -185,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self.panel.show(symbol: "checkmark.circle.fill", title: "已補存上次中斷的錄音", subtitle: saved.map(\.lastPathComponent).joined(separator: "、"),
                                 buttons: [("在 Finder 顯示", false, { NSWorkspace.shared.activateFileViewerSelecting(saved) })])
-                saved.forEach(self.transcribe)
+                saved.forEach(self.library.transcribe)
             }
         }
     }
@@ -217,10 +220,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             r.onProblem = { [weak self] message in self?.recordingProblem(message) }
             try r.start()
             recorder = r
+            library.recordingFile = r.url
             recordingStart = Date()
             pausedAt = nil
             pausedTotal = 0
-            clock = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.updateStatus() }
+            clock = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.updateStatus() } }
         } catch {
             panel.show(symbol: "exclamationmark.triangle.fill", title: "無法開始錄音", subtitle: "\(error)", buttons: [("好", true, {})])
         }
@@ -234,12 +238,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         problem = nil
         clock?.invalidate()
         updateStatus()
+        let aac = r.url
         DispatchQueue.global().async {
-            let url = Recorder.finalize(r.url)
+            let url = Recorder.finalize(aac)
             DispatchQueue.main.async {
+                self.library.recordingFile = nil
                 self.panel.show(symbol: "checkmark.circle.fill", title: "已存檔", subtitle: url.lastPathComponent,
-                                buttons: [("在 Finder 顯示", false, { NSWorkspace.shared.activateFileViewerSelecting([url]) })], hideAfter: 4)
-                self.transcribe(url)
+                                buttons: [("打開", false, { Dashboard.shared.show(select: url) })], hideAfter: 4)
+                self.library.transcribe(url)
             }
         }
     }
@@ -255,22 +261,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatus()
     }
 
-    private func transcribe(_ audio: URL) {
-        transcribing += 1
+    private func transcribed(_ url: URL, _ result: Result<Transcript, Error>) {
         updateStatus()
-        Transcriber.queue.async {
-            let result = Result { try Transcriber.transcribe(audio, speakers: true) }
-            DispatchQueue.main.async {
-                self.transcribing -= 1
-                self.updateStatus()
-                switch result {
-                case .success(let txt):
-                    self.panel.show(symbol: "text.bubble.fill", title: "逐字稿好了", subtitle: txt.lastPathComponent,
-                                    buttons: [("打開", true, { NSWorkspace.shared.open(txt) })], hideAfter: 8)
-                case .failure(let error):
-                    self.panel.show(symbol: "exclamationmark.triangle.fill", title: "逐字稿失敗", subtitle: "\(error)", buttons: [("好", true, {})])
-                }
-            }
+        switch result {
+        case .success:
+            panel.show(symbol: "text.bubble.fill", title: "逐字稿好了", subtitle: url.deletingPathExtension().lastPathComponent,
+                       buttons: [("打開", true, { Dashboard.shared.show(select: url) })], hideAfter: 8)
+        case .failure(let error):
+            panel.show(symbol: "exclamationmark.triangle.fill", title: "逐字稿失敗", subtitle: "\(error)", buttons: [("好", true, {})])
         }
     }
 
@@ -287,9 +285,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatus() {
         guard let button = statusItem.button else { return }
-        if recorder != nil {
+        if let r = recorder {
             let now = Date()
-            let s = Int(now.timeIntervalSince(recordingStart) - pausedTotal - (pausedAt.map { now.timeIntervalSince($0) } ?? 0))
+            let elapsed = now.timeIntervalSince(recordingStart) - pausedTotal - (pausedAt.map { now.timeIntervalSince($0) } ?? 0)
+            let s = Int(elapsed)
+            library.live = .init(title: r.url.deletingPathExtension().lastPathComponent, elapsed: elapsed, paused: pausedAt != nil, problem: problem)
             button.image = nil
             let mark = problem != nil ? "⚠︎" : pausedAt == nil ? "●" : "❚❚"
             button.attributedTitle = NSAttributedString(string: String(format: "%@ %02d:%02d", mark, s / 60, s % 60), attributes: [
@@ -297,11 +297,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
             ])
         } else {
+            library.live = nil
             button.title = ""
             button.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: "MeetRec")
         }
 
         let menu = NSMenu()
+        menu.addItem(MenuItem("打開 MeetRec") { Dashboard.shared.show() })
+        menu.addItem(.separator())
         if recorder != nil {
             menu.addItem(MenuItem(pausedAt == nil ? "暫停" : "繼續錄音") { [weak self] in self?.togglePause() })
             menu.addItem(MenuItem("停止並存檔") { [weak self] in self?.stop() })
@@ -312,7 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.isEnabled = false
             menu.addItem(item)
         }
-        if transcribing > 0 {
+        if !library.status.isEmpty {
             let item = NSMenuItem(title: "正在轉逐字稿…", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
@@ -325,10 +328,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
-        menu.addItem(MenuItem("轉逐字稿…") { [weak self] in
-            NSApp.activate(ignoringOtherApps: true)
-            self?.transcribeWindow.makeKeyAndOrderFront(nil)
-        })
         menu.addItem(MenuItem("打開錄音資料夾") { [weak self] in
             guard let self else { return }
             try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)
@@ -349,8 +348,10 @@ final class MenuItem: NSMenuItem {
     @objc private func fire() { handler() }
 }
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.accessory)
-app.run()
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.setActivationPolicy(.accessory)
+    app.run()
+}

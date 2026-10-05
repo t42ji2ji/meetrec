@@ -118,7 +118,7 @@ final class Recorder {
     static func finalize(_ aac: URL) -> URL {
         let m4a = aac.deletingPathExtension().appendingPathExtension("m4a")
         do {
-            try run(Transcriber.ffmpeg, ["-v", "error", "-y", "-i", aac.path, "-c", "copy", m4a.path])
+            try run(Transcriber.ffmpeg, ["-v", "error", "-y", "-i", aac.path, "-c", "copy", "-metadata", "comment=\(Transcriber.tag)", m4a.path])
             try FileManager.default.removeItem(at: aac)
             return m4a
         } catch {
