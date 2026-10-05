@@ -24,6 +24,7 @@ enum Transcriber {
     private typealias Line = (start: Double, end: Double, text: String)
 
     static func transcribe(_ audio: URL, progress: @escaping (Double) -> Void) throws -> Transcript {
+        guard Models.ready else { throw TranscribeError.modelsMissing }
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -212,13 +213,19 @@ func run(_ tool: String, _ args: [String], onStderr: ((String) -> Void)? = nil) 
     let data = out.fileHandleForReading.readDataToEndOfFile()
     p.waitUntilExit()
     err.fileHandleForReading.readabilityHandler = nil
-    if p.terminationStatus != 0 { throw TranscribeError(tool: (tool as NSString).lastPathComponent, status: p.terminationStatus) }
+    if p.terminationStatus != 0 { throw TranscribeError.tool((tool as NSString).lastPathComponent, p.terminationStatus) }
     return String(decoding: data, as: UTF8.self)
 }
 
-struct TranscribeError: Error, CustomStringConvertible {
-    let tool: String, status: Int32
-    var description: String { "\(tool) 失敗（\(status)）" }
+enum TranscribeError: Error, CustomStringConvertible {
+    case tool(String, Int32)
+    case modelsMissing
+    var description: String {
+        switch self {
+        case .tool(let tool, let status): return "\(tool) 失敗（\(status)）"
+        case .modelsMissing: return "還沒下載轉逐字稿的模型，請到設定下載"
+        }
+    }
 }
 
 private struct WhisperJSON: Decodable {

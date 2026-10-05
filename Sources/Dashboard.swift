@@ -75,6 +75,7 @@ final class Dashboard: NSObject, NSWindowDelegate {
 
     @objc private func importFiles() { model.importWithPanel() }
     @objc private func find() { model.focusSearch() }
+    @objc private func openSettings() { SettingsWindow.shared.show() }
 
     private func mainMenu() -> NSMenu {
         let main = NSMenu()
@@ -90,12 +91,14 @@ final class Dashboard: NSObject, NSWindowDelegate {
             i.keyEquivalentModifierMask = mods
             return i
         }
+        let settingsItem = item("設定…", "openSettings", ",")
+        settingsItem.target = self
         let importItem = item("匯入…", "importFiles", "o")
         importItem.target = self
         let findItem = item("搜尋", "find", "f")
         findItem.target = self
         // ⌘Q 只關視窗：MeetRec 平常住在選單列，錄音中按 ⌘Q 不能把錄音停掉。真的要結束用選單列的「結束 MeetRec」
-        add("MeetRec", [item("隱藏 MeetRec", "hide:", "h"), .separator(), item("關閉視窗", "performClose:", "q"), item("結束 MeetRec", "terminate:", "")])
+        add("MeetRec", [settingsItem, .separator(), item("隱藏 MeetRec", "hide:", "h"), .separator(), item("關閉視窗", "performClose:", "q"), item("結束 MeetRec", "terminate:", "")])
         add("檔案", [importItem, .separator(), item("關閉視窗", "performClose:", "w")])
         add("編輯", [item("還原", "undo:", "z"), item("重做", "redo:", "z", [.command, .shift]), .separator(),
                      item("剪下", "cut:", "x"), item("拷貝", "copy:", "c"), item("貼上", "paste:", "v"), item("全選", "selectAll:", "a"), .separator(), findItem])

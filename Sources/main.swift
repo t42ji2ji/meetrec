@@ -202,6 +202,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         library.stopLive = { [weak self] in self?.stop() }
         library.startLive = { [weak self] in self?.start(self?.detector.current) }
         recoverInterrupted()
+        // 第一次用（或模型被刪了）：先到設定下載模型
+        if !Models.ready { SettingsWindow.shared.show() }
     }
 
     /// 結束或關機時把緩衝區寫進 .aac；轉成 m4a 留給下次啟動的 recoverInterrupted
@@ -223,14 +225,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.panel.show(symbol: "checkmark.circle.fill", title: "已補存上次中斷的錄音",
                                 subtitle: saved.map { $0.deletingLastPathComponent().lastPathComponent }.joined(separator: "、"),
                                 buttons: [("打開", false, { Dashboard.shared.show(select: saved.first) })])
-                saved.forEach(self.library.transcribe)
+                if Settings.autoTranscribe { saved.forEach(self.library.transcribe) }
             }
         }
     }
 
     private func browserChanged(_ b: Browser?) {
         if recorder == nil {
-            if let b {
+            if let b, Settings.askToRecord {
                 panel.show(symbol: "waveform.circle.fill", title: "要錄下這場會議嗎？", subtitle: "\(b.name) 正在使用麥克風",
                            buttons: [("不用", false, {}), ("錄音", true, { [weak self] in self?.start(b) })])
             } else {
@@ -302,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.library.recordingFile = nil
                 self.panel.show(symbol: "checkmark.circle.fill", title: "已存檔", subtitle: url.lastPathComponent,
                                 buttons: [("打開", false, { Dashboard.shared.show(select: url) })], hideAfter: 4)
-                self.library.transcribe(url)
+                if Settings.autoTranscribe { self.library.transcribe(url) }
             }
         }
     }
@@ -375,13 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let login = MenuItem("登入時自動啟動") { [weak self] in
-            let svc = SMAppService.mainApp
-            if svc.status == .enabled { try? svc.unregister() } else { try? svc.register() }
-            self?.updateStatus()
-        }
-        login.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(login)
+        menu.addItem(MenuItem("設定…") { SettingsWindow.shared.show() })
         menu.addItem(MenuItem("打開錄音資料夾") { [weak self] in
             guard let self else { return }
             try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)
