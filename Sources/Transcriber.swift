@@ -61,20 +61,25 @@ enum Transcriber {
         String(format: "%02d:%02d:%02d,%03d", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
     }
 
-    private static func run(_ tool: String, _ args: [String]) throws {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: tool)
-        p.arguments = args
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        try p.run()
-        p.waitUntilExit()
-        if p.terminationStatus != 0 { throw TranscribeError(tool: (tool as NSString).lastPathComponent, status: p.terminationStatus) }
-    }
-
     private static func home(_ path: String) -> String {
         FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(path).path
     }
+}
+
+/// 跑外部指令，回傳 stdout
+@discardableResult
+func run(_ tool: String, _ args: [String]) throws -> String {
+    let p = Process()
+    let out = Pipe()
+    p.executableURL = URL(fileURLWithPath: tool)
+    p.arguments = args
+    p.standardOutput = out
+    p.standardError = FileHandle.nullDevice
+    try p.run()
+    let data = out.fileHandleForReading.readDataToEndOfFile()
+    p.waitUntilExit()
+    if p.terminationStatus != 0 { throw TranscribeError(tool: (tool as NSString).lastPathComponent, status: p.terminationStatus) }
+    return String(decoding: data, as: UTF8.self)
 }
 
 struct TranscribeError: Error, CustomStringConvertible {

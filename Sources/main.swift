@@ -153,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pausedTotal: TimeInterval = 0
     private var clock: Timer?
     private var transcribing = 0
+    private var problem: String?
     private lazy var transcribeWindow = TranscribeWindow(recordings: folder)
     private let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/會議錄音")
 
@@ -166,6 +167,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatus()
         detector.onChange = { [weak self] b in self?.browserChanged(b) }
         detector.start()
+        recoverInterrupted()
+    }
+
+    /// 結束或關機時把緩衝區寫進 .aac；轉成 m4a 留給下次啟動的 recoverInterrupted
+    func applicationWillTerminate(_ note: Notification) {
+        recorder?.stop()
+    }
+
+    /// 上次沒正常停止（閃退、強制結束、斷電、錄音中結束 app）留下的 .aac：轉成 m4a、轉逐字稿
+    private func recoverInterrupted() {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        let leftovers = files.filter { $0.pathExtension == "aac" }
+        guard !leftovers.isEmpty else { return }
+        DispatchQueue.global().async {
+            let saved = leftovers.map(Recorder.finalize)
+            DispatchQueue.main.async {
+                self.panel.show(symbol: "checkmark.circle.fill", title: "已補存上次中斷的錄音", subtitle: saved.map(\.lastPathComponent).joined(separator: "、"),
+                                buttons: [("在 Finder 顯示", false, { NSWorkspace.shared.activateFileViewerSelecting(saved) })])
+                saved.forEach(self.transcribe)
+            }
+        }
     }
 
     private func browserChanged(_ b: Browser?) {
@@ -189,9 +211,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd HH-mm"
-        let url = folder.appendingPathComponent("\(df.string(from: Date())) \(b.name).m4a")
+        let url = Recorder.newURL(in: folder, name: "\(df.string(from: Date())) \(b.name)")
         do {
             let r = try Recorder(browser: b, url: url)
+            r.onProblem = { [weak self] message in self?.recordingProblem(message) }
             try r.start()
             recorder = r
             recordingStart = Date()
@@ -208,11 +231,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let r = recorder else { return }
         r.stop()
         recorder = nil
+        problem = nil
         clock?.invalidate()
         updateStatus()
-        panel.show(symbol: "checkmark.circle.fill", title: "已存檔", subtitle: r.url.lastPathComponent,
-                   buttons: [("在 Finder 顯示", false, { NSWorkspace.shared.activateFileViewerSelecting([r.url]) })], hideAfter: 4)
-        transcribe(r.url)
+        DispatchQueue.global().async {
+            let url = Recorder.finalize(r.url)
+            DispatchQueue.main.async {
+                self.panel.show(symbol: "checkmark.circle.fill", title: "已存檔", subtitle: url.lastPathComponent,
+                                buttons: [("在 Finder 顯示", false, { NSWorkspace.shared.activateFileViewerSelecting([url]) })], hideAfter: 4)
+                self.transcribe(url)
+            }
+        }
+    }
+
+    private func recordingProblem(_ message: String?) {
+        guard recorder != nil else { return }
+        if let message {
+            panel.show(symbol: "exclamationmark.triangle.fill", title: "錄音出狀況", subtitle: message, buttons: [("好", true, {})])
+        } else if problem != nil {
+            panel.show(symbol: "checkmark.circle.fill", title: "錄音已恢復", subtitle: "從剛才中斷的地方接著錄", buttons: [], hideAfter: 3)
+        }
+        problem = message
+        updateStatus()
     }
 
     private func transcribe(_ audio: URL) {
@@ -251,8 +291,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let now = Date()
             let s = Int(now.timeIntervalSince(recordingStart) - pausedTotal - (pausedAt.map { now.timeIntervalSince($0) } ?? 0))
             button.image = nil
-            button.attributedTitle = NSAttributedString(string: String(format: "%@ %02d:%02d", pausedAt == nil ? "●" : "❚❚", s / 60, s % 60), attributes: [
-                .foregroundColor: pausedAt == nil ? NSColor.systemRed : NSColor.secondaryLabelColor,
+            let mark = problem != nil ? "⚠︎" : pausedAt == nil ? "●" : "❚❚"
+            button.attributedTitle = NSAttributedString(string: String(format: "%@ %02d:%02d", mark, s / 60, s % 60), attributes: [
+                .foregroundColor: problem != nil ? NSColor.systemOrange : pausedAt == nil ? NSColor.systemRed : NSColor.secondaryLabelColor,
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
             ])
         } else {
@@ -293,7 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)
             NSWorkspace.shared.open(self.folder)
         })
-        menu.addItem(MenuItem("結束 MeetRec") { [weak self] in self?.stop(); NSApp.terminate(nil) })
+        menu.addItem(MenuItem("結束 MeetRec") { NSApp.terminate(nil) })
         statusItem.menu = menu
     }
 }
