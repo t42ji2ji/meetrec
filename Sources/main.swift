@@ -154,6 +154,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pausedTotal: TimeInterval = 0
     private var clock: Timer?
     private var problem: String?
+    /// 這場錄音的瀏覽器、開始時間（檔名用）、抓到的會議標題
+    private var meeting: (browser: Browser, date: String, title: String?)?
+    private var titleTimer: Timer?
     private let library = Library.shared
     private var folder: URL { library.folder }
 
@@ -180,14 +183,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 上次沒正常停止（閃退、強制結束、斷電、錄音中結束 app）留下的 .aac：轉成 m4a、轉逐字稿
     private func recoverInterrupted() {
-        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        let leftovers = files.filter { $0.pathExtension == "aac" }
+        let fm = FileManager.default
+        let dirs = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+        let files = dirs + dirs.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [] }
+        // 錄音中的 .aac 一定跟資料夾同名；匯入的 .aac 不算
+        let leftovers = files.filter { $0.pathExtension == "aac" && $0.deletingPathExtension().lastPathComponent == $0.deletingLastPathComponent().lastPathComponent }
         guard !leftovers.isEmpty else { return }
         DispatchQueue.global().async {
             let saved = leftovers.map(Recorder.finalize)
             DispatchQueue.main.async {
-                self.panel.show(symbol: "checkmark.circle.fill", title: "已補存上次中斷的錄音", subtitle: saved.map(\.lastPathComponent).joined(separator: "、"),
-                                buttons: [("在 Finder 顯示", false, { NSWorkspace.shared.activateFileViewerSelecting(saved) })])
+                self.panel.show(symbol: "checkmark.circle.fill", title: "已補存上次中斷的錄音",
+                                subtitle: saved.map { $0.deletingLastPathComponent().lastPathComponent }.joined(separator: "、"),
+                                buttons: [("打開", false, { Dashboard.shared.show(select: saved.first) })])
                 saved.forEach(self.library.transcribe)
             }
         }
@@ -211,12 +218,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func start(_ b: Browser) {
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd HH-mm"
-        let url = Recorder.newURL(in: folder, name: "\(df.string(from: Date())) \(b.name)")
+        let date = df.string(from: Date())
         do {
-            let r = try Recorder(browser: b, url: url)
+            let r = try Recorder(browser: b, url: try Recorder.newURL(in: folder, name: "\(date) \(b.name)"))
             r.onProblem = { [weak self] message in self?.recordingProblem(message) }
             try r.start()
             recorder = r
@@ -225,14 +231,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pausedAt = nil
             pausedTotal = 0
             clock = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.updateStatus() } }
+            meeting = (b, date, nil)
+            // 錄音先開始再讀會議標題：第一次會跳自動化權限詢問，也可能還沒進會議室；讀不到就每 30 秒再試
+            lookupTitle()
+            titleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.lookupTitle() } }
         } catch {
             panel.show(symbol: "exclamationmark.triangle.fill", title: "無法開始錄音", subtitle: "\(error)", buttons: [("好", true, {})])
         }
         updateStatus()
     }
 
+    private func lookupTitle() {
+        guard let m = meeting, m.title == nil, let title = m.browser.meetingTitle() else { return }
+        meeting?.title = title
+        titleTimer?.invalidate()
+    }
+
     private func stop() {
         guard let r = recorder else { return }
+        lookupTitle()
+        let name = meeting.flatMap { m in m.title.map { "\(m.date) \($0)" } }
+        meeting = nil
+        titleTimer?.invalidate()
         r.stop()
         recorder = nil
         problem = nil
@@ -240,8 +260,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatus()
         let aac = r.url
         DispatchQueue.global().async {
-            let url = Recorder.finalize(aac)
+            let finalized = Recorder.finalize(aac)
             DispatchQueue.main.async {
+                // 有抓到會議標題就用它命名資料夾（撞名就維持原名）
+                let url = name.flatMap { try? self.library.rename(audio: finalized, to: $0) } ?? finalized
                 self.library.recordingFile = nil
                 self.panel.show(symbol: "checkmark.circle.fill", title: "已存檔", subtitle: url.lastPathComponent,
                                 buttons: [("打開", false, { Dashboard.shared.show(select: url) })], hideAfter: 4)

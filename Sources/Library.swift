@@ -2,17 +2,21 @@ import AVFoundation
 import Foundation
 
 /// 錄音資料夾的內容與操作：列出錄音、排隊轉逐字稿（含進度）、匯入、改名、刪除。畫面只透過這裡動檔案。
+/// 一場錄音一個資料夾：<folder>/<標題>/<標題>.m4a（＋ .srt、.txt、隱藏的逐字稿 json）。
 @MainActor
 final class Library: ObservableObject {
     static let shared = Library()
     let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/會議錄音")
 
     struct Recording: Identifiable, Hashable {
+        /// 音檔
         let url: URL
         let date: Date
         let duration: Double // 秒
         var id: URL { url }
-        var title: String { url.deletingPathExtension().lastPathComponent }
+        /// 這場錄音的資料夾
+        var folder: URL { url.deletingLastPathComponent() }
+        var title: String { folder.lastPathComponent }
     }
 
     enum Status: Equatable {
@@ -60,11 +64,25 @@ final class Library: ObservableObject {
     }
 
     func reload() {
-        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.creationDateKey], options: .skipsHiddenFiles)) ?? []
+        let fm = FileManager.default
+        let entries = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? []
+        // 直接放在根目錄的音檔（舊版錄音、從 Finder 丟進來的）搬進自己的資料夾
+        for url in entries where Self.audioTypes.contains(url.pathExtension.lowercased()) {
+            Self.adopt(url, into: folder)
+        }
         let live = recordingFile?.standardizedFileURL
         let known = Dictionary(uniqueKeysWithValues: recordings.map { ($0.url, $0) })
-        recordings = files
-            .filter { Self.audioTypes.contains($0.pathExtension.lowercased()) && $0.standardizedFileURL != live }
+        let dirs = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? []
+        recordings = dirs
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .compactMap { dir in
+                // 優先跟資料夾同名的音檔
+                let audio = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [])
+                    .filter { Self.audioTypes.contains($0.pathExtension.lowercased()) }
+                    .sorted { a, _ in a.deletingPathExtension().lastPathComponent == dir.lastPathComponent }
+                return audio.first
+            }
+            .filter { $0.standardizedFileURL != live }
             .map { url in
                 if let r = known[url] { return r }
                 let date = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
@@ -113,15 +131,25 @@ final class Library: ObservableObject {
         return false
     }
 
-    /// 複製進錄音資料夾後轉逐字稿；AVFoundation 不能播的格式（影片、ogg、webm…）抽出聲音轉成 m4a
+    /// 根目錄的音檔連同同名的 srt、txt、逐字稿搬進新資料夾
+    nonisolated private static func adopt(_ audio: URL, into root: URL) {
+        guard let dest = try? Recorder.newURL(in: root, name: audio.deletingPathExtension().lastPathComponent)
+            .deletingPathExtension().appendingPathExtension(audio.pathExtension) else { return }
+        for (from, to) in zip(related(audio), related(dest)) where FileManager.default.fileExists(atPath: from.path) {
+            try? FileManager.default.moveItem(at: from, to: to)
+        }
+    }
+
+    /// 複製進錄音資料夾（自己一個資料夾）後轉逐字稿；AVFoundation 不能播的格式（影片、ogg、webm…）抽出聲音轉成 m4a
     func importFiles(_ urls: [URL]) {
+        let root = folder
         for src in urls {
             DispatchQueue.global().async {
-                let name = src.deletingPathExtension().lastPathComponent
                 let ext = src.pathExtension.lowercased()
                 let playable = Self.audioTypes.contains(ext)
-                let dest = self.freeURL(name, ext: playable ? ext : "m4a")
                 do {
+                    let dest = try Recorder.newURL(in: root, name: src.deletingPathExtension().lastPathComponent)
+                        .deletingPathExtension().appendingPathExtension(playable ? ext : "m4a")
                     if playable {
                         try FileManager.default.copyItem(at: src, to: dest)
                     } else {
@@ -138,45 +166,44 @@ final class Library: ObservableObject {
         }
     }
 
-    /// 改名：音檔、逐字稿、srt、txt 一起改。回傳新的音檔位置
+    /// 改名：資料夾和裡面的音檔、逐字稿、srt、txt 一起改。回傳新的音檔位置
     @discardableResult
     func rename(_ r: Recording, to title: String) throws -> URL {
-        let title = title.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-")
-        let dest = folder.appendingPathComponent(title).appendingPathExtension(r.url.pathExtension)
-        guard !title.isEmpty, dest != r.url else { return r.url }
-        guard !FileManager.default.fileExists(atPath: dest.path) else { throw LibraryError.nameTaken(title) }
+        try rename(audio: r.url, to: title)
+    }
+
+    @discardableResult
+    func rename(audio: URL, to title: String) throws -> URL {
+        let title = title.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        let oldFolder = audio.deletingLastPathComponent()
+        let newFolder = folder.appendingPathComponent(title)
+        guard !title.isEmpty, newFolder.lastPathComponent != oldFolder.lastPathComponent else { return audio }
         let fm = FileManager.default
-        for (from, to) in zip(Self.related(r.url), Self.related(dest)) where fm.fileExists(atPath: from.path) {
+        guard !fm.fileExists(atPath: newFolder.path) else { throw LibraryError.nameTaken(title) }
+        try fm.moveItem(at: oldFolder, to: newFolder)
+        let moved = newFolder.appendingPathComponent(audio.lastPathComponent)
+        let dest = newFolder.appendingPathComponent(title).appendingPathExtension(audio.pathExtension)
+        for (from, to) in zip(Self.related(moved), Self.related(dest)) where fm.fileExists(atPath: from.path) {
             try fm.moveItem(at: from, to: to)
         }
+        if let s = status.removeValue(forKey: audio) { status[dest] = s }
         reload()
         return dest
     }
 
-    /// 音檔和逐字稿一起丟到垃圾桶
+    /// 整個資料夾丟到垃圾桶
     func delete(_ r: Recording) throws {
-        for u in Self.related(r.url) where FileManager.default.fileExists(atPath: u.path) {
-            try FileManager.default.trashItem(at: u, resultingItemURL: nil)
-        }
+        try FileManager.default.trashItem(at: r.folder, resultingItemURL: nil)
         status[r.url] = nil
         reload()
     }
 
     /// 音檔、逐字稿 json、srt、txt
-    static func related(_ audio: URL) -> [URL] {
+    nonisolated static func related(_ audio: URL) -> [URL] {
         let base = audio.deletingPathExtension()
         return [audio, Transcript.sidecar(for: audio), base.appendingPathExtension("srt"), base.appendingPathExtension("txt")]
     }
 
-    nonisolated private func freeURL(_ name: String, ext: String) -> URL {
-        var candidate = name
-        var n = 2
-        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).appendingPathExtension(ext).path) {
-            candidate = "\(name) \(n)"
-            n += 1
-        }
-        return folder.appendingPathComponent(candidate).appendingPathExtension(ext)
-    }
 }
 
 enum LibraryError: Error, CustomStringConvertible {

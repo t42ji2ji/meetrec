@@ -42,14 +42,14 @@ enum Transcriber {
             // 跟我說的話重複的：我的聲音被對方那邊的麥克風（例如同一間的同事）收進去又傳回來
             let others = try recognize(tab.wav) { progress(0.3 + $0 * 0.6) }
                 .filter { o in !me.contains { echoes(o, of: $0) } }
-            let who = label(others, turns: try turns.wait(), prefix: "them", single: "對方", multi: "對方")
+            let who = label(others, turns: try turns.wait(), prefix: "them", single: "對方")
             t = Transcript(segments: me.map { .init(start: $0.start, end: $0.end, speaker: "me", text: $0.text) } + who.segments,
                            speakers: who.names.merging(["me": "我"]) { a, _ in a })
         } else {
             let mono = try extract(audio, ["-ac", "1"], tmp.appendingPathComponent("mono"))
             let turns = diarizeInBackground(mono.wav)
             let lines = try recognize(mono.wav) { progress($0 * 0.9) }
-            let who = label(lines, turns: try turns.wait(), prefix: "s", single: "", multi: "說話者")
+            let who = label(lines, turns: try turns.wait(), prefix: "s", single: "")
             t = Transcript(segments: who.segments, speakers: who.names)
         }
         t.segments.sort { $0.start < $1.start }
@@ -113,9 +113,13 @@ enum Transcriber {
         }
     }
 
+    /// 好記又不會跟真名搞混的暫時名字，使用者在逐字稿裡改成真名
+    private static let placeholderNames = ["海獺", "柴犬", "水豚", "企鵝", "狐狸", "貓頭鷹", "熊貓", "無尾熊", "刺蝟", "海豚",
+                                           "松鼠", "浣熊", "羊駝", "鸚鵡", "鯨魚", "兔子", "小鹿", "河馬", "長頸鹿", "樹懶"]
+
     /// 每句話分給重疊最多的說話者；講話總長太短的群（多半是分錯的碎片）併進前後的人。
-    /// 只剩一個人就叫 single，否則叫「multi A」「multi B」…（依出場順序）
-    private static func label(_ lines: [Line], turns: [Turn], prefix: String, single: String, multi: String)
+    /// 只剩一個人就叫 single，否則每人隨機一個動物名字
+    private static func label(_ lines: [Line], turns: [Turn], prefix: String, single: String)
         -> (segments: [Transcript.Segment], names: [String: String]) {
         guard !lines.isEmpty else { return ([], [:]) }
         var cluster = lines.map { l -> Int in
@@ -138,8 +142,9 @@ enum Transcriber {
         for c in cluster where !order.contains(c) { order.append(c) }
         let key = { (c: Int) in "\(prefix)\(order.firstIndex(of: c)! + 1)" }
         var names: [String: String] = [:]
+        let pool = placeholderNames.shuffled()
         for (i, c) in order.enumerated() {
-            names[key(c)] = order.count == 1 ? single : "\(multi)\(Character(UnicodeScalar(65 + i % 26)!))"
+            names[key(c)] = order.count == 1 ? single : i < pool.count ? pool[i] : "說話者 \(i + 1)"
         }
         let segments = zip(lines, cluster).map { l, c in Transcript.Segment(start: l.start, end: l.end, speaker: key(c), text: l.text) }
         return (segments, names)

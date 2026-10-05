@@ -103,15 +103,17 @@ final class Recorder {
         }
     }
 
-    /// 同一分鐘內又開新錄音時加編號，不能蓋掉前一個檔
-    static func newURL(in folder: URL, name: String) -> URL {
+    /// 一場錄音一個資料夾：<root>/<name>/<name>.m4a。同名（例如同一分鐘又開一場）就加編號，不能蓋掉前一個
+    static func newURL(in root: URL, name: String) throws -> URL {
         var candidate = name
         var n = 2
-        while ["m4a", "aac"].contains(where: { FileManager.default.fileExists(atPath: folder.appendingPathComponent("\(candidate).\($0)").path) }) {
+        while FileManager.default.fileExists(atPath: root.appendingPathComponent(candidate).path) {
             candidate = "\(name) \(n)"
             n += 1
         }
-        return folder.appendingPathComponent("\(candidate).m4a")
+        let folder = root.appendingPathComponent(candidate)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder.appendingPathComponent(candidate).appendingPathExtension("m4a")
     }
 
     /// .aac 無損轉成同名 .m4a，成功才刪 .aac；失敗就留著 .aac（照樣能播）。回傳最後的檔案。
