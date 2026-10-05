@@ -212,7 +212,11 @@ struct TranscriptView: View {
                                        editing: editingID == row.id ? Binding(get: { editor.text(row.id) }, set: { editor.setText(row.id, $0) }) : nil,
                                        focus: $focus,
                                        play: { focus = nil; player.seek(row.segment.start); player.play() },
-                                       edit: { clickedAt = NSEvent.mouseLocation; editingID = row.id },
+                                       edit: {
+                                           clickedAt = NSEvent.mouseLocation
+                                           CaretPlacer.shared.arm(at: NSEvent.mouseLocation)
+                                           editingID = row.id
+                                       },
                                        focused: { placeCaret() },
                                        menu: { showMenu(for: row) })
                                 .padding(.top, row.isHead ? 10 : 0)
@@ -319,6 +323,43 @@ struct TranscriptView: View {
         menu.addItem(MenuItem("重新命名「\(editor.displayName(current))」…") { renameSpeaker(current) })
         menu.addItem(MenuItem("新增說話者…") { nameText = ""; addingFor = [row.id] })
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+}
+
+/// 輸入框拿到焦點時 AppKit 會先把整句全選，等下一輪才移游標的話會閃一下反白。
+/// 改成在全選發生的當下（還沒畫到畫面上）就換成點的位置
+@MainActor
+final class CaretPlacer {
+    static let shared = CaretPlacer()
+    private var point: NSPoint?
+    private var observer: NSObjectProtocol?
+    private var generation = 0
+
+    func arm(at screenPoint: NSPoint) {
+        disarm()
+        point = screenPoint
+        observer = NotificationCenter.default.addObserver(forName: NSTextView.didChangeSelectionNotification, object: nil, queue: nil) { note in
+            MainActor.assumeIsolated { CaretPlacer.shared.selectionChanged(note.object as? NSTextView) }
+        }
+        // 半秒內沒等到全選就放棄，之後的選取都是使用者自己的
+        generation += 1
+        let g = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if self.generation == g { self.disarm() } }
+    }
+
+    private func selectionChanged(_ tv: NSTextView?) {
+        guard let tv, tv.isFieldEditor, let p = point, let w = tv.window else { return }
+        let len = (tv.string as NSString).length
+        guard len > 0, tv.selectedRange().length == len else { return }
+        disarm()
+        let i = tv.characterIndexForInsertion(at: tv.convert(w.convertPoint(fromScreen: p), from: nil))
+        tv.setSelectedRange(NSRange(location: min(i, len), length: 0))
+    }
+
+    private func disarm() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
+        point = nil
     }
 }
 
