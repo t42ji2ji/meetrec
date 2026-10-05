@@ -41,7 +41,7 @@ final class PromptPanel: NSPanel {
         // 淺色背景上靠陰影、深色背景上靠這圈亮邊分出輪廓
         borderView.wantsLayer = true
         borderView.layer?.cornerRadius = r
-        borderView.layer?.borderWidth = 1
+        borderView.layer?.borderWidth = 2
         borderView.layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
 
         let container = NSView()
