@@ -142,7 +142,7 @@ final class Library: ObservableObject {
         }
     }
 
-    /// 複製進錄音資料夾（自己一個資料夾）後轉逐字稿；AVFoundation 不能播的格式（影片、ogg、webm…）抽出聲音轉成 m4a
+    /// 複製進錄音資料夾（自己一個資料夾）後轉逐字稿；影片之類 AVFoundation 能讀但不是純音檔的，抽出聲音轉成 m4a
     func importFiles(_ urls: [URL]) {
         let root = folder
         for src in urls {
@@ -155,7 +155,7 @@ final class Library: ObservableObject {
                     if playable {
                         try FileManager.default.copyItem(at: src, to: dest)
                     } else {
-                        try run(Transcriber.ffmpeg, ["-v", "error", "-i", src.path, "-vn", "-c:a", "aac", "-b:a", "128k", dest.path])
+                        try Media.convertToM4A(src, to: dest)
                     }
                     DispatchQueue.main.async {
                         self.reload()

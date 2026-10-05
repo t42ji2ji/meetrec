@@ -7,8 +7,6 @@ enum Transcriber {
     /// 一次只轉一個，自動轉和手動加的一起排隊
     static let queue = DispatchQueue(label: "transcriber")
 
-    static let ffmpeg = "/opt/homebrew/bin/ffmpeg"
-    static let ffprobe = "/opt/homebrew/bin/ffprobe"
     static let whisper = "/opt/homebrew/bin/whisper-cli"
     static let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MeetRec").path
     static let model = dir + "/ggml-large-v3-turbo-q5_0.bin"
@@ -29,10 +27,16 @@ enum Transcriber {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         var t: Transcript
+        let channels = try Media.decode16k(audio)
+        let wav = { (name: String, pcm: [Float]) throws -> (wav: URL, pcm: [Float]) in
+            let url = tmp.appendingPathComponent(name).appendingPathExtension("wav")
+            try Media.writeWav(pcm, to: url)
+            return (url, pcm)
+        }
         // 標記可能跟著轉檔被複製到單聲道檔，所以也要確認是雙聲道
-        let probe = try run(ffprobe, ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels:format_tags=comment", "-of", "default=nw=1", audio.path])
-        let mic = probe.contains(tag) && probe.contains("channels=2") ? try extract(audio, ["-af", "pan=mono|c0=c0"], tmp.appendingPathComponent("mic")) : nil
-        let tab = mic == nil ? nil : try extract(audio, ["-af", "pan=mono|c0=c1"], tmp.appendingPathComponent("tab"))
+        let tagged = try Media.info(audio).comment == tag && channels.count == 2
+        let mic = tagged ? try wav("mic", channels[0]) : nil
+        let tab = tagged ? try wav("tab", channels[1]) : nil
         let tabDB = tab.map { levels($0.pcm) } ?? []
         // 瀏覽器聲道整場沒聲音＝只錄了麥克風（主動開始錄音），麥克風裡的人要靠分說話者
         if let mic, let tab, (tabDB.max() ?? -120) > -50 {
@@ -48,7 +52,7 @@ enum Transcriber {
             t = Transcript(segments: me.map { .init(start: $0.start, end: $0.end, speaker: "me", text: $0.text) } + who.segments,
                            speakers: who.names.merging(["me": "我"]) { a, _ in a })
         } else {
-            let mono = try mic ?? extract(audio, ["-ac", "1"], tmp.appendingPathComponent("mono"))
+            let mono = try mic ?? wav("mono", channels.count == 2 ? zip(channels[0], channels[1]).map { ($0 + $1) / 2 } : channels[0])
             let turns = diarizeInBackground(mono.wav)
             let lines = try recognize(mono.wav) { progress($0 * 0.9) }
             let who = label(lines, turns: try turns.wait(), prefix: "s", single: "")
@@ -58,14 +62,6 @@ enum Transcriber {
         try t.save(for: audio)
         progress(1)
         return t
-    }
-
-    /// 轉成 16 kHz 單聲道 wav 給 whisper／sherpa，另存一份 raw float 算音量
-    private static func extract(_ audio: URL, _ mix: [String], _ base: URL) throws -> (wav: URL, pcm: [Float]) {
-        let wav = base.appendingPathExtension("wav"), raw = base.appendingPathExtension("f32")
-        try run(ffmpeg, ["-v", "error", "-y", "-i", audio.path, "-vn"] + mix + ["-ar", "16000", wav.path, "-vn"] + mix + ["-ar", "16000", "-f", "f32le", raw.path])
-        let data = try Data(contentsOf: raw)
-        return (wav, data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) })
     }
 
     private static func recognize(_ wav: URL, progress: @escaping (Double) -> Void) throws -> [Line] {
@@ -78,8 +74,8 @@ enum Transcriber {
         }
         let json = try JSONDecoder().decode(WhisperJSON.self, from: Data(contentsOf: out.appendingPathExtension("json")))
         return json.transcription.compactMap { s in
-            // whisper 中文有時輸出簡體，一律轉成繁體
-            let text = (s.text.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? s.text).trimmingCharacters(in: .whitespaces)
+            // whisper 中文有時繁簡混著出，照設定統一
+            let text = Settings.script.convert(s.text).trimmingCharacters(in: .whitespaces)
             return text.isEmpty ? nil : (Double(s.offsets.from) / 1000, Double(s.offsets.to) / 1000, text)
         }
     }
@@ -174,9 +170,10 @@ enum Transcriber {
         return db[a..<b].reduce(0, +) / Double(b - a)
     }
 
-    /// 3 秒內、內容有六成以上一樣（最長共同子序列）就算回音；太短的（「對」「嗯」）不判斷
+    /// 6 秒內、內容有六成以上一樣（最長共同子序列）就算回音；太短的（「對」「嗯」）不判斷。
+    /// 時間放寬到 6 秒：whisper 合併句子時起點會差好幾秒
     private static func echoes(_ a: Line, of b: Line) -> Bool {
-        guard abs(a.start - b.start) <= 3 else { return false }
+        guard abs(a.start - b.start) <= 6 else { return false }
         let x = Array(a.text.filter { $0.isLetter || $0.isNumber }), y = Array(b.text.filter { $0.isLetter || $0.isNumber })
         guard min(x.count, y.count) >= 4 else { return false }
         var dp = [Int](repeating: 0, count: y.count + 1)

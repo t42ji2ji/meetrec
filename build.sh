@@ -5,7 +5,7 @@ cd "${0:A:h}"
 APP=build/MeetRec.app
 rm -rf $APP && mkdir -p $APP/Contents/MacOS
 cp Info.plist $APP/Contents/Info.plist
-swiftc -O Sources/*.swift -o $APP/Contents/MacOS/MeetRec
+swiftc -O -target arm64-apple-macos15.0 Sources/*.swift -o $APP/Contents/MacOS/MeetRec
 codesign --force --sign 240813A71E965C988CFFE2FDF5F6663FF78A0E89 $APP
 mkdir -p ~/Applications
 rm -rf ~/Applications/MeetRec.app && cp -R $APP ~/Applications/

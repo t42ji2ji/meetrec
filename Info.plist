@@ -8,6 +8,7 @@
 <key>CFBundleExecutable</key><string>MeetRec</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1</string>
+<key>LSMinimumSystemVersion</key><string>15.0</string>
 <key>LSUIElement</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>錄下你在會議中的聲音</string>
 <key>NSAppleEventsUsageDescription</key><string>讀取瀏覽器的會議分頁標題，用來替錄音命名</string>
