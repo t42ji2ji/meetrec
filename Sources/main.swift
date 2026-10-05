@@ -152,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pausedAt: Date?
     private var pausedTotal: TimeInterval = 0
     private var clock: Timer?
+    private var transcribing = 0
     private let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/會議錄音")
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -210,6 +211,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatus()
         panel.show(symbol: "checkmark.circle.fill", title: "已存檔", subtitle: r.url.lastPathComponent,
                    buttons: [("在 Finder 顯示", false, { NSWorkspace.shared.activateFileViewerSelecting([r.url]) })], hideAfter: 4)
+        transcribe(r.url)
+    }
+
+    private func transcribe(_ audio: URL) {
+        transcribing += 1
+        updateStatus()
+        DispatchQueue.global(qos: .utility).async {
+            let result = Result { try Transcriber.transcribe(audio) }
+            DispatchQueue.main.async {
+                self.transcribing -= 1
+                self.updateStatus()
+                switch result {
+                case .success(let txt):
+                    self.panel.show(symbol: "text.bubble.fill", title: "逐字稿好了", subtitle: txt.lastPathComponent,
+                                    buttons: [("打開", true, { NSWorkspace.shared.open(txt) })], hideAfter: 8)
+                case .failure(let error):
+                    self.panel.show(symbol: "exclamationmark.triangle.fill", title: "逐字稿失敗", subtitle: "\(error)", buttons: [("好", true, {})])
+                }
+            }
+        }
     }
 
     private func togglePause() {
@@ -246,6 +267,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(MenuItem("錄音（\(b.name)）") { [weak self] in self?.start(b) })
         } else {
             let item = NSMenuItem(title: "沒有偵測到會議", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        }
+        if transcribing > 0 {
+            let item = NSMenuItem(title: "正在轉逐字稿…", action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         }
