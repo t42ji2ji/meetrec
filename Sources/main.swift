@@ -378,6 +378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(.separator())
         menu.addItem(MenuItem("設定…") { SettingsWindow.shared.show() })
+        menu.addItem(MenuItem("關於 MeetRec") { About.show() })
         menu.addItem(MenuItem("打開錄音資料夾") { [weak self] in
             guard let self else { return }
             try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)

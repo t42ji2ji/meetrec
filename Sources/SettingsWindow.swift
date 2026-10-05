@@ -142,3 +142,26 @@ struct SettingsView: View {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!)
     }
 }
+
+/// 關於視窗：版本、開源元件與模型的授權（散布時必須附上）
+@MainActor
+enum About {
+    static func show() {
+        let licenses = Bundle.main.resourceURL!.appendingPathComponent("licenses")
+        let credits = NSMutableAttributedString(string: """
+        錄音、轉逐字稿、分辨說話者都在這台 Mac 上完成。
+
+        使用的開源程式與模型：
+        whisper.cpp（MIT）、sherpa-onnx（Apache 2.0）、ONNX Runtime（MIT）
+        Whisper large-v3-turbo（MIT，OpenAI）、Silero VAD（MIT）
+        pyannote segmentation 3.0（MIT）、3D-Speaker CAM++（Apache 2.0）
+
+        """, attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
+        credits.append(NSAttributedString(string: "授權全文", attributes: [.font: NSFont.systemFont(ofSize: 11), .link: licenses]))
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        credits.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: credits.length))
+        NSApp.activate()
+        NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+    }
+}
