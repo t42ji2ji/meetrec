@@ -3,10 +3,14 @@ import AVFoundation
 import ServiceManagement
 
 /// 畫面中央的半透明提示面板（深色膠囊），不搶焦點
+/// 陰影自己畫：系統的視窗陰影在無邊框視窗外會多一圈細線。視窗四周留 pad 的透明邊給陰影
 final class PromptPanel: NSPanel {
     private let effect = NSVisualEffectView()
+    private let shadowView = NSView()
+    private let borderView = PassThroughView()
     private var autoHide: DispatchWorkItem?
     private let radius: CGFloat = 22
+    private let pad: CGFloat = 32
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -20,7 +24,6 @@ final class PromptPanel: NSPanel {
         effect.material = .hudWindow
         effect.blendingMode = .behindWindow
         effect.state = .active
-        // 用 maskImage 裁圓角，視窗陰影才會跟著圓角走
         let r = radius
         let mask = NSImage(size: NSSize(width: r * 2 + 1, height: r * 2 + 1), flipped: false) { rect in
             NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill()
@@ -29,7 +32,23 @@ final class PromptPanel: NSPanel {
         mask.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
         mask.resizingMode = .stretch
         effect.maskImage = mask
-        contentView = effect
+
+        shadowView.wantsLayer = true
+        shadowView.layer?.shadowColor = NSColor.black.cgColor
+        shadowView.layer?.shadowOpacity = 0.45
+        shadowView.layer?.shadowRadius = 16
+        shadowView.layer?.shadowOffset = CGSize(width: 0, height: -6)
+        // 淺色背景上靠陰影、深色背景上靠這圈亮邊分出輪廓
+        borderView.wantsLayer = true
+        borderView.layer?.cornerRadius = r
+        borderView.layer?.borderWidth = 1
+        borderView.layer?.borderColor = NSColor.white.withAlphaComponent(0.22).cgColor
+
+        let container = NSView()
+        container.addSubview(shadowView)
+        container.addSubview(effect)
+        container.addSubview(borderView)
+        contentView = container
     }
 
     func show(symbol: String, title: String, subtitle: String, buttons: [(String, Bool, () -> Void)], hideAfter: Double? = nil) {
@@ -74,9 +93,12 @@ final class PromptPanel: NSPanel {
         let size = stack.fittingSize
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
         let f = screen.visibleFrame
-        setFrame(NSRect(x: (f.midX - size.width / 2).rounded(), y: (f.maxY - f.height * 0.16 - size.height).rounded(),
-                        width: size.width, height: size.height), display: true)
-        invalidateShadow()
+        setFrame(NSRect(x: (f.midX - size.width / 2).rounded() - pad, y: (f.maxY - f.height * 0.16 - size.height).rounded() - pad,
+                        width: size.width + pad * 2, height: size.height + pad * 2), display: false)
+        let capsule = NSRect(x: pad, y: pad, width: size.width, height: size.height)
+        for v in [shadowView, effect, borderView] { v.frame = capsule }
+        shadowView.layer?.shadowPath = CGPath(roundedRect: shadowView.bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        display()
 
         autoHide?.cancel()
         alphaValue = 0
@@ -94,6 +116,11 @@ final class PromptPanel: NSPanel {
         guard isVisible else { return }
         NSAnimationContext.runAnimationGroup({ $0.duration = 0.2; animator().alphaValue = 0 }) { [weak self] in self?.orderOut(nil) }
     }
+}
+
+/// 不接滑鼠事件的疊加層
+final class PassThroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// 膠囊按鈕：主要＝紅底，次要＝半透明白底；hover 變亮、按下變暗

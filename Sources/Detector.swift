@@ -1,11 +1,13 @@
 import AppKit
 import CoreAudio
 
-/// Chromium 系瀏覽器；實際收音的是 bundle ID 帶 ".helper" 的輔助程式。appID 是主程式，用來以 AppleScript 讀分頁
+/// 瀏覽器。bundlePrefix 是實際收音、出聲的程式（Chromium 是 ".helper"、Safari 是共用的 WebKit.GPU、Firefox 是 plugin-container），
+/// appID 是主程式：要它在跑才算數，也用來以 AppleScript 讀分頁。tabTitle 是 AppleScript 裡分頁標題的屬性名，Firefox 不能讀分頁所以是 nil
 struct Browser {
     let bundlePrefix: String
     let appID: String
     let name: String
+    var tabTitle: String? = "title"
 }
 
 let browsers = [
@@ -14,17 +16,20 @@ let browsers = [
     Browser(bundlePrefix: "company.thebrowser", appID: "company.thebrowser.Browser", name: "Arc"),
     Browser(bundlePrefix: "com.microsoft.edgemac", appID: "com.microsoft.edgemac", name: "Edge"),
     Browser(bundlePrefix: "com.brave.Browser", appID: "com.brave.Browser", name: "Brave"),
+    Browser(bundlePrefix: "com.apple.WebKit.GPU", appID: "com.apple.Safari", name: "Safari", tabTitle: "name"),
+    Browser(bundlePrefix: "org.mozilla", appID: "org.mozilla.firefox", name: "Firefox", tabTitle: nil),
 ]
 
 extension Browser {
     /// 開著的會議分頁標題（Google Meet、Teams）；只有會議代碼或讀不到（沒給自動化權限）就回 nil。主執行緒
     func meetingTitle() -> String? {
+        guard let tabTitle else { return nil }
         let script = """
         tell application id "\(appID)"
             set out to ""
             repeat with w in windows
                 repeat with t in tabs of w
-                    set out to out & (URL of t) & "\t" & (title of t) & "\n"
+                    set out to out & (URL of t) & "\t" & (\(tabTitle) of t) & "\n"
                 end repeat
             end repeat
             return out
@@ -74,7 +79,11 @@ final class Detector {
         var found: Browser?
         for p in processObjects() where getUInt32(p, kAudioProcessPropertyIsRunningInput) == 1 {
             guard let bundle = getString(p, kAudioProcessPropertyBundleID) else { continue }
-            if let b = browsers.first(where: { bundle.hasPrefix($0.bundlePrefix) }) { found = b; break }
+            // WebKit.GPU 是所有 WebKit app 共用的，要主程式真的在跑才算
+            if let b = browsers.first(where: { bundle.hasPrefix($0.bundlePrefix) && !NSRunningApplication.runningApplications(withBundleIdentifier: $0.appID).isEmpty }) {
+                found = b
+                break
+            }
         }
         if found?.bundlePrefix != current?.bundlePrefix {
             current = found
