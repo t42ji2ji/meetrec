@@ -248,8 +248,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd HH-mm"
         let date = df.string(from: Date())
+        var url: URL?
         do {
-            let r = try Recorder(browser: b, url: try Recorder.newURL(in: folder, name: "\(date) \(b.name)"))
+            url = try Recorder.newURL(in: folder, name: "\(date) \(b.name)")
+            let r = try Recorder(browser: b, url: url!)
             r.onProblem = { [weak self] message in self?.recordingProblem(message) }
             try r.start()
             recorder = r
@@ -263,6 +265,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             lookupTitle()
             titleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.lookupTitle() } }
         } catch {
+            // 沒錄成就別留下空資料夾（裡面只有剛建的空 .aac）
+            if let url { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
             panel.show(symbol: "exclamationmark.triangle.fill", title: "無法開始錄音", subtitle: "\(error)", buttons: [("好", true, {})])
         }
         updateStatus()
