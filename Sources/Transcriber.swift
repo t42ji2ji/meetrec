@@ -7,11 +7,13 @@ enum Transcriber {
     /// 一次只轉一個，自動轉和手動加的一起排隊
     static let queue = DispatchQueue(label: "transcriber")
 
-    static let whisper = "/opt/homebrew/bin/whisper-cli"
+    /// 輔助程式跟主程式放在一起（app 的 Contents/MacOS）
+    static let helpers = Bundle.main.executableURL!.deletingLastPathComponent()
+    static let whisper = helpers.appendingPathComponent("whisper-cli").path
+    static let diarizer = helpers.appendingPathComponent("sherpa-diarize").path
     static let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MeetRec").path
     static let model = dir + "/ggml-large-v3-turbo-q5_0.bin"
     static let vadModel = dir + "/ggml-silero-v5.1.2.bin"
-    static let diarizer = dir + "/sherpa-onnx/bin/sherpa-onnx-offline-speaker-diarization"
     static let segmentationModel = dir + "/pyannote-segmentation-3-0.onnx"
     static let embeddingModel = dir + "/3dspeaker-campplus-zh-en.onnx"
     /// MeetRec 錄的檔案在 metadata 的 comment 留這個標記（Recorder.finalize 寫入）

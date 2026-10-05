@@ -5,3 +5,4 @@ spike/*.log
 spike/micwatch
 spike/recspike
 spike/RecSpike.app/
+vendor/
