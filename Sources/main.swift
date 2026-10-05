@@ -153,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pausedTotal: TimeInterval = 0
     private var clock: Timer?
     private var transcribing = 0
+    private lazy var transcribeWindow = TranscribeWindow(recordings: folder)
     private let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/會議錄音")
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -217,8 +218,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func transcribe(_ audio: URL) {
         transcribing += 1
         updateStatus()
-        DispatchQueue.global(qos: .utility).async {
-            let result = Result { try Transcriber.transcribe(audio) }
+        Transcriber.queue.async {
+            let result = Result { try Transcriber.transcribe(audio, speakers: true) }
             DispatchQueue.main.async {
                 self.transcribing -= 1
                 self.updateStatus()
@@ -283,6 +284,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
+        menu.addItem(MenuItem("轉逐字稿…") { [weak self] in
+            NSApp.activate(ignoringOtherApps: true)
+            self?.transcribeWindow.makeKeyAndOrderFront(nil)
+        })
         menu.addItem(MenuItem("打開錄音資料夾") { [weak self] in
             guard let self else { return }
             try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)
