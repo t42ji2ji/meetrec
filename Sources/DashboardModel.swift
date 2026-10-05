@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import Combine
+import MediaToolbox
 import UniformTypeIdentifiers
 
 enum DashboardSelection: Hashable {
@@ -14,9 +15,15 @@ final class DashboardModel: ObservableObject {
     let library = Library.shared
     let player = DashboardPlayer()
 
+    /// 側邊欄選到的
     @Published var selection: DashboardSelection? {
-        didSet { if selection != oldValue { selectionChanged() } }
+        didSet { if !picking { shown = selection } }
     }
+    /// 右邊正在顯示的。程式設定 selection 時同步跟上；使用者在清單上點選時晚一輪（見 pick）
+    @Published private(set) var shown: DashboardSelection? {
+        didSet { if shown != oldValue { selectionChanged() } }
+    }
+    private var picking = false
     @Published var search = ""
     /// 選到的錄音有逐字稿時才有
     @Published private(set) var editor: TranscriptEditor?
@@ -25,7 +32,15 @@ final class DashboardModel: ObservableObject {
     @Published var deleting: Library.Recording?
     @Published var retranscribing: Library.Recording?
     @Published var error: String?
+    /// 檔案拖到視窗上方
+    @Published var dropTargeted = false
+    /// ⌘F：把焦點移到搜尋框（搜尋框建立時設定）
+    var focusSearch: () -> Void = {}
+    /// Library.status 的副本：畫面只看這個，不直接觀察 Library（錄音中每秒更新的 live 不會讓右邊整個重畫）
+    @Published private(set) var status: [URL: Library.Status] = [:]
 
+    /// 讀過的逐字稿，用檔案修改時間判斷還能不能用；切換錄音時不用再讀檔解析
+    private var transcripts: [URL: (modified: Date, transcript: Transcript)] = [:]
     /// 搜尋用的逐字稿全文，逐字稿有存檔就整個丟掉重讀
     private var texts: [URL: (text: String, folded: String)] = [:]
     /// 等新檔案出現就選它（錄音存檔、匯入）
@@ -33,6 +48,7 @@ final class DashboardModel: ObservableObject {
     private var bag = Set<AnyCancellable>()
 
     init() {
+        library.$status.removeDuplicates().assign(to: &$status)
         library.$revision.dropFirst().sink { [weak self] _ in
             self?.texts = [:]
             self?.refreshEditor()
@@ -40,6 +56,7 @@ final class DashboardModel: ObservableObject {
         // @Published 在 willSet 送出，等這一輪跑完 library.recordings 才是新的
         library.$recordings.receive(on: RunLoop.main).sink { [weak self] list in
             self?.recordingsChanged(list)
+            self?.prefetch(list)
         }.store(in: &bag)
         library.$live.removeDuplicates { ($0 == nil) == ($1 == nil) }.dropFirst().sink { [weak self] live in
             guard let self, live == nil else { return }
@@ -49,7 +66,7 @@ final class DashboardModel: ObservableObject {
     }
 
     var selectedRecording: Library.Recording? {
-        guard case .recording(let url) = selection else { return nil }
+        guard case .recording(let url) = shown else { return nil }
         return library.recordings.first { $0.url == url }
     }
 
@@ -83,7 +100,7 @@ final class DashboardModel: ObservableObject {
 
     private func text(of r: Library.Recording) -> (text: String, folded: String) {
         if let t = texts[r.url] { return t }
-        let text = library.transcript(for: r)?.segments.map(\.text).joined(separator: "\n") ?? ""
+        let text = transcript(for: r.url)?.segments.map(\.text).joined(separator: "\n") ?? ""
         let t = (text, Self.fold(text))
         texts[r.url] = t
         return t
@@ -94,6 +111,19 @@ final class DashboardModel: ObservableObject {
     }
 
     // MARK: 選取
+
+    /// 使用者在清單上點選：反白先變（這一輪畫面只有清單在動），下一輪才換右邊的內容，點下去馬上有反應。
+    /// 連按方向鍵時中間跳過的不會畫
+    func pick(_ s: DashboardSelection?) {
+        picking = true
+        selection = s
+        picking = false
+        // async 會在同一輪跑完、跟反白擠在同一次畫面更新；用計時器排到畫完之後的下一輪
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.001) { [weak self] in
+            guard let self, selection == s else { return }
+            shown = s
+        }
+    }
 
     private func selectionChanged() {
         editor?.flush()
@@ -117,9 +147,38 @@ final class DashboardModel: ObservableObject {
         }
     }
 
+    /// 快取裡的逐字稿；檔案改過（存檔、重新轉錄）就重讀
+    private func transcript(for url: URL) -> Transcript? {
+        let file = Transcript.sidecar(for: url)
+        guard let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate else {
+            transcripts[url] = nil
+            return nil
+        }
+        if let c = transcripts[url], c.modified == modified { return c.transcript }
+        let t = Transcript.load(for: url)
+        transcripts[url] = t.map { (modified, $0) }
+        return t
+    }
+
+    /// 背景先把還沒讀過的逐字稿解析好，第一次點到也不用在主執行緒讀檔
+    private func prefetch(_ list: [Library.Recording]) {
+        let urls = list.prefix(50).map(\.url).filter { transcripts[$0] == nil }
+        guard !urls.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            for url in urls {
+                let file = Transcript.sidecar(for: url)
+                guard let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                      let t = Transcript.load(for: url) else { continue }
+                await MainActor.run { [weak self] in
+                    if self?.transcripts[url] == nil { self?.transcripts[url] = (modified, t) }
+                }
+            }
+        }
+    }
+
     /// 讀磁碟上的逐字稿；同一場就交給 editor 判斷要不要換（自己存的不換，重新轉錄的換）
     private func refreshEditor() {
-        guard let r = selectedRecording, let t = library.transcript(for: r) else {
+        guard let r = selectedRecording, let t = transcript(for: r.url) else {
             editor = nil
             return
         }
@@ -150,7 +209,7 @@ final class DashboardModel: ObservableObject {
     }
 
     func delete(_ r: Library.Recording) {
-        let selected = selection == .recording(r.url)
+        let selected = shown == .recording(r.url)
         let list = visibleRecordings
         if selected {
             editor = nil
@@ -175,14 +234,14 @@ final class DashboardModel: ObservableObject {
     }
 
     func reveal(_ r: Library.Recording) {
-        NSWorkspace.shared.activateFileViewerSelecting([r.url])
+        NSWorkspace.shared.activateFileViewerSelecting([r.folder])
     }
 
     enum ExportFormat: String { case srt, txt }
 
     func export(_ r: Library.Recording, as format: ExportFormat) {
         if editor?.recording.url == r.url { editor?.flush() }
-        guard let t = library.transcript(for: r) else { return }
+        guard let t = transcript(for: r.url) else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "\(r.title).\(format.rawValue)"
         panel.allowedContentTypes = [UTType(filenameExtension: format.rawValue) ?? .plainText]
@@ -208,12 +267,18 @@ final class DashboardModel: ObservableObject {
     }
 
     /// 拖進來的檔案只收聲音和影片；回傳有沒有收
-    @discardableResult
-    func importFiles(_ urls: [URL]) -> Bool {
-        let ok = urls.filter { url in
+    func canImport(_ urls: [URL]) -> Bool { !importable(urls).isEmpty }
+
+    private func importable(_ urls: [URL]) -> [URL] {
+        urls.filter { url in
             guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
             return Self.importTypes.contains { type.conforms(to: $0) }
         }
+    }
+
+    @discardableResult
+    func importFiles(_ urls: [URL]) -> Bool {
+        let ok = importable(urls)
         guard !ok.isEmpty else { return false }
         awaitingNewFrom = Set(library.recordings.map(\.url))
         library.importFiles(ok)
@@ -259,7 +324,7 @@ final class DashboardPlayer: ObservableObject {
     func load(_ url: URL, duration: Double) {
         guard url != self.url else { return }
         player.pause()
-        player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        player.replaceCurrentItem(with: Self.item(url))
         self.url = url
         self.duration = duration
         clock.time = 0
@@ -268,7 +333,7 @@ final class DashboardPlayer: ObservableObject {
     /// 檔案改名：換成新路徑，位置和播放狀態不變
     func moved(to url: URL) {
         let t = clock.time, playing = isPlaying
-        player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        player.replaceCurrentItem(with: Self.item(url))
         self.url = url
         seek(t)
         if playing { play() }
@@ -301,10 +366,62 @@ final class DashboardPlayer: ObservableObject {
 }
 
 extension Library.Recording {
-    var dateText: String {
+    // 每列每次重畫都會用到，formatter 建一次就好
+    private static let thisYear = formatter("M月d日 HH:mm")
+    private static let otherYear = formatter("yyyy年M月d日 HH:mm")
+    private static func formatter(_ format: String) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "zh_Hant_TW")
-        f.dateFormat = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year) ? "M月d日 HH:mm" : "yyyy年M月d日 HH:mm"
-        return f.string(from: date)
+        f.dateFormat = format
+        return f
+    }
+
+    var dateText: String {
+        (Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year) ? Self.thisYear : Self.otherYear).string(from: date)
+    }
+}
+
+
+extension DashboardPlayer {
+    /// MeetRec 的錄音左＝我、右＝對方，戴耳機聽會一邊一個人；播放時把兩聲道混在一起兩邊都放（檔案不動）。
+    /// 乘 0.707（等功率）：只在一邊的人聲只小 3 dB；兩邊相同的一般立體聲大 3 dB 也還不會破音
+    nonisolated static func item(_ url: URL) -> AVPlayerItem {
+        let item = AVPlayerItem(url: url)
+        Task { @MainActor in
+            guard let track = try? await item.asset.loadTracks(withMediaType: .audio).first, let tap = mixdownTap() else { return }
+            let params = AVMutableAudioMixInputParameters(track: track)
+            params.audioTapProcessor = tap
+            let mix = AVMutableAudioMix()
+            mix.inputParameters = [params]
+            item.audioMix = mix
+        }
+        return item
+    }
+
+    nonisolated static func mixdownTap() -> MTAudioProcessingTap? {
+        var callbacks = MTAudioProcessingTapCallbacks(
+            version: kMTAudioProcessingTapCallbacksVersion_0, clientInfo: nil,
+            init: nil, finalize: nil, prepare: nil, unprepare: nil,
+            process: { tap, frames, _, buffers, framesOut, flagsOut in
+                guard MTAudioProcessingTapGetSourceAudio(tap, frames, buffers, flagsOut, nil, framesOut) == noErr else { return }
+                let list = UnsafeMutableAudioBufferListPointer(buffers)
+                let n = Int(framesOut.pointee)
+                if list.count >= 2, let l = list[0].mData?.assumingMemoryBound(to: Float.self), let r = list[1].mData?.assumingMemoryBound(to: Float.self) {
+                    for i in 0..<n {
+                        let m = (l[i] + r[i]) * 0.707
+                        l[i] = m
+                        r[i] = m
+                    }
+                } else if list.count == 1, list[0].mNumberChannels == 2, let p = list[0].mData?.assumingMemoryBound(to: Float.self) {
+                    for i in 0..<n {
+                        let m = (p[2 * i] + p[2 * i + 1]) * 0.707
+                        p[2 * i] = m
+                        p[2 * i + 1] = m
+                    }
+                }
+            })
+        var tap: MTAudioProcessingTap?
+        guard MTAudioProcessingTapCreate(kCFAllocatorDefault, &callbacks, kMTAudioProcessingTapCreationFlag_PreEffects, &tap) == noErr else { return nil }
+        return tap
     }
 }

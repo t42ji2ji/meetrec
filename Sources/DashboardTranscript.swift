@@ -1,13 +1,29 @@
+import AppKit
 import Combine
 import SwiftUI
 
 /// 一場錄音的逐字稿編輯：改字、改說話者、改名字。改完一秒沒動作就存（Library.save 會順便更新 srt/txt）
 @MainActor
 final class TranscriptEditor: ObservableObject {
+    /// 正在播的那一句。獨立一個物件：播放時只有每一列自己的反白會更新，整個清單不用重算
+    final class Playing: ObservableObject {
+        @Published var id: UUID?
+    }
+
+    /// 畫面上的一列。段首＝同一個人連續講的第一句，那一段的句子 id 記在段首
+    struct Row: Identifiable, Equatable {
+        var segment: Transcript.Segment
+        var isHead: Bool
+        var turn: [UUID]
+        var id: UUID { segment.id }
+    }
+
     let recording: Library.Recording
+    let playing = Playing()
     @Published private(set) var transcript: Transcript
-    /// 正在播的那一句
-    @Published private(set) var playingID: UUID?
+    /// transcript 變動時算一次，畫面每次重畫直接用
+    @Published private(set) var rows: [Row] = []
+    private(set) var talk: [String: Double] = [:]
     /// 最後一次和磁碟一致的版本
     private var saved: Transcript
     private var saveTask: Task<Void, Never>?
@@ -15,46 +31,43 @@ final class TranscriptEditor: ObservableObject {
     private let onError: (String) -> Void
     private var bag = Set<AnyCancellable>()
 
-    /// 同一個人連續講的併成一段
-    struct Turn: Identifiable {
-        let speaker: String
-        var segments: [Transcript.Segment]
-        var id: UUID { segments[0].id }
-    }
-
     init(recording: Library.Recording, transcript: Transcript, clock: DashboardPlayer.Clock, onError: @escaping (String) -> Void) {
         self.recording = recording
         self.transcript = transcript
         saved = transcript
         self.onError = onError
-        reindex()
+        rebuild()
         clock.$time.sink { [weak self] t in
             guard let self else { return }
             let id = segment(at: t)
-            if id != playingID { playingID = id }
+            if id != playing.id { playing.id = id }
         }.store(in: &bag)
     }
 
-    private func reindex() {
-        index = Dictionary(uniqueKeysWithValues: transcript.segments.enumerated().map { ($1.id, $0) })
+    private func rebuild() {
+        let segs = transcript.segments
+        index = Dictionary(uniqueKeysWithValues: segs.enumerated().map { ($1.id, $0) })
+        var rows: [Row] = []
+        var talk: [String: Double] = [:]
+        var head = 0
+        for (i, s) in segs.enumerated() {
+            talk[s.speaker, default: 0] += max(0, s.end - s.start)
+            if i > 0, segs[i - 1].speaker == s.speaker {
+                rows[head].turn.append(s.id)
+                rows.append(Row(segment: s, isHead: false, turn: []))
+            } else {
+                head = rows.count
+                rows.append(Row(segment: s, isHead: true, turn: [s.id]))
+            }
+        }
+        self.rows = rows
+        self.talk = talk
     }
 
     /// 最後一句已經開始、還沒講完（或剛講完一秒內）的
     private func segment(at t: Double) -> UUID? {
         guard t > 0, let s = transcript.segments.last(where: { $0.start <= t + 0.05 }), t < s.end + 1 else { return nil }
         return s.id
-    }
-
-    var turns: [Turn] {
-        var turns: [Turn] = []
-        for s in transcript.segments {
-            if let last = turns.last, last.speaker == s.speaker {
-                turns[turns.count - 1].segments.append(s)
-            } else {
-                turns.append(Turn(speaker: s.speaker, segments: [s]))
-            }
-        }
-        return turns
     }
 
     /// 出場順序，加上新增了但還沒用到的
@@ -68,29 +81,30 @@ final class TranscriptEditor: ObservableObject {
         return n.isEmpty ? "未命名" : n
     }
 
-    func talkTime(_ key: String) -> Double {
-        transcript.segments.filter { $0.speaker == key }.reduce(0) { $0 + max(0, $1.end - $1.start) }
-    }
-
     // MARK: 編輯
 
     func text(_ id: UUID) -> String {
         index[id].map { transcript.segments[$0].text } ?? ""
     }
 
+    /// 打字只改那一列，不重建整個清單
     func setText(_ id: UUID, _ text: String) {
         guard let i = index[id], transcript.segments[i].text != text else { return }
         transcript.segments[i].text = text
+        rows[i].segment.text = text
         scheduleSave()
     }
 
     func assign(_ ids: [UUID], to speaker: String) {
         for id in ids { if let i = index[id] { transcript.segments[i].speaker = speaker } }
+        rebuild()
         flush()
     }
 
     func renameSpeaker(_ key: String, to name: String) {
-        transcript.speakers[key] = name.trimmingCharacters(in: .whitespaces)
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard transcript.speakers[key] != name else { return }
+        transcript.speakers[key] = name
         flush()
     }
 
@@ -140,7 +154,7 @@ final class TranscriptEditor: ObservableObject {
             saveTask?.cancel()
             transcript = disk
             saved = disk
-            reindex()
+            rebuild()
         }
     }
 }
@@ -167,15 +181,23 @@ struct SpeakerChip: View {
     }
 }
 
-/// 逐字稿：上面說話者統計，下面一句一行
+/// 逐字稿：上面說話者（點名字直接改名），下面一句一行。平常每句是純文字，點下去那一句才換成輸入框
 struct TranscriptView: View {
+    enum Field: Hashable {
+        case segment(UUID)
+        case speaker(String)
+    }
+
     @ObservedObject var editor: TranscriptEditor
     let player: DashboardPlayer
-    @FocusState private var focused: UUID?
-    @State private var userScrolledAt = Date.distantPast
-    @State private var renamingSpeaker: String?
-    @State private var addingFor: [UUID]?
+    @FocusState private var focus: Field?
+    @State private var editingID: UUID?
+    /// 點下去的位置（螢幕座標），輸入框出現後把游標放在那裡
+    @State private var clickedAt: NSPoint?
+    @State private var editingSpeaker: String?
     @State private var nameText = ""
+    @State private var userScrolledAt = Date.distantPast
+    @State private var addingFor: [UUID]?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -184,38 +206,42 @@ struct TranscriptView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(editor.turns) { turn in
-                            ForEach(Array(turn.segments.enumerated()), id: \.element.id) { i, s in
-                                SegmentRow(editor: editor, segment: s, turn: turn, isHead: i == 0, isPlaying: editor.playingID == s.id,
-                                           focused: $focused, play: { player.seek(s.start); player.play() },
-                                           rename: { renamingSpeaker = $0; nameText = editor.transcript.name($0) },
-                                           add: { addingFor = $0; nameText = "" })
-                                    .padding(.top, i == 0 ? 10 : 0)
-                            }
+                        ForEach(editor.rows) { row in
+                            SegmentRow(row: row, playing: editor.playing,
+                                       speaker: editor.displayName(row.segment.speaker),
+                                       editing: editingID == row.id ? Binding(get: { editor.text(row.id) }, set: { editor.setText(row.id, $0) }) : nil,
+                                       focus: $focus,
+                                       play: { focus = nil; player.seek(row.segment.start); player.play() },
+                                       edit: { clickedAt = NSEvent.mouseLocation; editingID = row.id },
+                                       focused: { placeCaret() },
+                                       menu: { showMenu(for: row) })
+                                .padding(.top, row.isHead ? 10 : 0)
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
+                    .padding(12)
                 }
                 .onScrollPhaseChange { old, new in
                     // 使用者自己捲過就先不要自動捲回播放位置
                     if [old, new].contains(where: { $0 == .interacting || $0 == .decelerating }) { userScrolledAt = Date() }
                 }
-                .onChange(of: editor.playingID) { _, id in
-                    guard let id, player.isPlaying, focused == nil, Date().timeIntervalSince(userScrolledAt) > 4 else { return }
+                .onReceive(editor.playing.$id.removeDuplicates()) { id in
+                    guard let id, player.isPlaying, editingID == nil, Date().timeIntervalSince(userScrolledAt) > 4 else { return }
                     withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(id, anchor: .center) }
                 }
             }
         }
-        .onChange(of: focused) { old, _ in
-            if old != nil { editor.flush() }
-        }
-        .alert("重新命名說話者", isPresented: Binding(get: { renamingSpeaker != nil }, set: { if !$0 { renamingSpeaker = nil } })) {
-            TextField("名稱", text: $nameText)
-            Button("取消", role: .cancel) {}
-            Button("好") { if let k = renamingSpeaker { editor.renameSpeaker(k, to: nameText) } }
-        } message: {
-            Text("這個人說的每一句都會改成新名稱。留空就不標說話者。")
+        .onChange(of: focus) { old, new in
+            // 離開輸入框（Return、Esc、點別的地方）就收回成文字並存檔
+            if case .segment(let id) = old, new != old {
+                editor.flush()
+                if editingID == id { editingID = nil }
+            }
+            if case .speaker(let key) = old, new != old {
+                if editingSpeaker == key {
+                    editor.renameSpeaker(key, to: nameText)
+                    editingSpeaker = nil
+                }
+            }
         }
         .alert("新增說話者", isPresented: Binding(get: { addingFor != nil }, set: { if !$0 { addingFor = nil } })) {
             TextField("名稱", text: $nameText)
@@ -229,104 +255,159 @@ struct TranscriptView: View {
     }
 
     private var legend: some View {
-        let total = max(editor.transcript.segments.reduce(0) { $0 + max(0, $1.end - $1.start) }, 1)
+        let total = max(editor.talk.values.reduce(0, +), 1)
         return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 14) {
+            HStack(spacing: 16) {
                 ForEach(editor.transcript.speakerOrder, id: \.self) { key in
-                    Menu {
-                        Button("重新命名說話者…") { renamingSpeaker = key; nameText = editor.transcript.name(key) }
-                    } label: {
-                        HStack(spacing: 6) {
-                            SpeakerChip(name: editor.displayName(key), key: key)
-                            let t = editor.talkTime(key)
-                            Text("\(Transcript.clock(t)) · \(Int((t / total * 100).rounded()))%")
-                                .font(.callout.monospacedDigit())
-                                .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        if editingSpeaker == key {
+                            TextField("名稱", text: $nameText)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                                .focused($focus, equals: .speaker(key))
+                                .onSubmit { focus = nil }
+                                .onExitCommand { editingSpeaker = nil; focus = nil }
+                                .onAppear { DispatchQueue.main.async { focus = .speaker(key) } }
+                        } else {
+                            LegendName(name: editor.displayName(key), key: key) { renameSpeaker(key) }
                         }
+                        let t = editor.talk[key] ?? 0
+                        Text("\(Transcript.clock(t)) · \(Int((t / total * 100).rounded()))%")
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.secondary)
                     }
-                    .menuStyle(.button)
-                    .buttonStyle(.plain)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("點一下重新命名")
                 }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 8)
         }
     }
+
+    /// 輸入框拿到焦點時系統會全選，直接打字就把整句蓋掉；改成把游標放在點的位置
+    private func placeCaret() {
+        guard let p = clickedAt, let w = NSApp.keyWindow, let tv = w.firstResponder as? NSTextView else { return }
+        clickedAt = nil
+        let i = tv.characterIndexForInsertion(at: tv.convert(w.convertPoint(fromScreen: p), from: nil))
+        tv.setSelectedRange(NSRange(location: min(i, (tv.string as NSString).length), length: 0))
+    }
+
+    private func renameSpeaker(_ key: String) {
+        nameText = editor.transcript.name(key)
+        editingSpeaker = key
+    }
+
+    /// 說話者選單用 AppKit 現做：幾百列的 SwiftUI Menu 每次切換錄音都要建，太慢
+    private func showMenu(for row: TranscriptEditor.Row) {
+        let menu = NSMenu()
+        let current = row.segment.speaker
+        let others = editor.speakerKeys.filter { $0 != current }
+        if !others.isEmpty {
+            menu.addItem(.sectionHeader(title: "這句改成"))
+            for k in others {
+                menu.addItem(MenuItem(editor.displayName(k)) { editor.assign([row.id], to: k) })
+            }
+            if row.isHead, row.turn.count > 1 {
+                let whole = NSMenuItem(title: "整段 \(row.turn.count) 句改成", action: nil, keyEquivalent: "")
+                whole.submenu = NSMenu()
+                for k in others {
+                    whole.submenu?.addItem(MenuItem(editor.displayName(k)) { editor.assign(row.turn, to: k) })
+                }
+                menu.addItem(whole)
+            }
+            menu.addItem(.separator())
+        }
+        menu.addItem(MenuItem("重新命名「\(editor.displayName(current))」…") { renameSpeaker(current) })
+        menu.addItem(MenuItem("新增說話者…") { nameText = ""; addingFor = [row.id] })
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
 }
 
-private struct SegmentRow: View {
-    @ObservedObject var editor: TranscriptEditor
-    let segment: Transcript.Segment
-    let turn: TranscriptEditor.Turn
-    let isHead: Bool
-    let isPlaying: Bool
-    var focused: FocusState<UUID?>.Binding
-    let play: () -> Void
-    let rename: (String) -> Void
-    let add: ([UUID]) -> Void
+/// 說話者統計上的名字：點一下就地改名
+private struct LegendName: View {
+    let name: String
+    let key: String
+    let rename: () -> Void
     @State private var hovering = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Button(action: play) {
-                Text(Transcript.clock(segment.start))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(isPlaying ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                    .frame(width: 58, alignment: .trailing)
-                    .contentShape(Rectangle())
+        Button(action: rename) {
+            HStack(spacing: 3) {
+                SpeakerChip(name: name, key: key)
+                Image(systemName: "pencil")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .opacity(hovering ? 1 : 0)
             }
-            .buttonStyle(.plain)
-            .help("從這裡播放")
-            .accessibilityLabel("從 \(Transcript.clock(segment.start)) 播放")
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("點一下改名")
+    }
+}
+
+private struct SegmentRow: View {
+    let row: TranscriptEditor.Row
+    @ObservedObject var playing: TranscriptEditor.Playing
+    let speaker: String
+    /// 正在改這一句才有
+    let editing: Binding<String>?
+    var focus: FocusState<TranscriptView.Field?>.Binding
+    let play: () -> Void
+    let edit: () -> Void
+    let focused: () -> Void
+    let menu: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let isPlaying = playing.id == row.id
+        // 每列只用 Text＋點擊手勢，不用 Button／help：幾十列一起建立時差很多
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(Transcript.clock(row.segment.start))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(isPlaying ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .frame(width: 58, alignment: .trailing)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: play)
+                .pointerStyle(.link)
 
             // 每段第一句顯示說話者；後面的句子滑過才出現，一樣可以單獨改
-            speakerMenu
+            SpeakerChip(name: speaker, key: row.segment.speaker)
+                .onTapGesture(perform: menu)
+                .pointerStyle(.link)
                 .frame(width: 112, alignment: .leading)
-                .opacity(isHead ? 1 : hovering ? 0.6 : 0)
+                .opacity(row.isHead ? 1 : hovering ? 0.6 : 0)
 
-            TextField("", text: Binding(get: { editor.text(segment.id) }, set: { editor.setText(segment.id, $0) }), axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.body)
-                .lineSpacing(3)
-                .focused(focused, equals: segment.id)
+            if let editing {
+                TextField("", text: editing, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineSpacing(3)
+                    .focused(focus, equals: .segment(row.id))
+                    .onSubmit { focus.wrappedValue = nil }
+                    .onExitCommand { focus.wrappedValue = nil }
+                    // 輸入框剛出現時還沒掛進視窗，等下一輪再要焦點
+                    .onAppear {
+                        DispatchQueue.main.async {
+                            focus.wrappedValue = .segment(row.id)
+                            DispatchQueue.main.async(execute: focused)
+                        }
+                    }
+            } else {
+                // 只有字本身能點進編輯；字以外的空白交給整列的點擊（跳到這句播放）
+                Text(row.segment.text.isEmpty ? " " : row.segment.text)
+                    .lineSpacing(3)
+                    .onTapGesture(perform: edit)
+                    .pointerStyle(.horizontalText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
         .background(isPlaying ? Color.accentColor.opacity(0.12) : hovering ? Color.primary.opacity(0.04) : .clear,
                     in: RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
+        // 正在改這一句時整列不接點擊，點輸入框裡移游標才不會變成跳播
+        .gesture(TapGesture().onEnded(play), including: editing == nil ? .all : .subviews)
         .onHover { hovering = $0 }
-        .id(segment.id)
-    }
-
-    private var speakerMenu: some View {
-        let others = editor.speakerKeys.filter { $0 != segment.speaker }
-        return Menu {
-            if !others.isEmpty {
-                Section("這句改成") {
-                    ForEach(others, id: \.self) { k in
-                        Button(editor.displayName(k)) { editor.assign([segment.id], to: k) }
-                    }
-                }
-            }
-            if isHead, turn.segments.count > 1 {
-                Menu("整段 \(turn.segments.count) 句改成") {
-                    ForEach(others, id: \.self) { k in
-                        Button(editor.displayName(k)) { editor.assign(turn.segments.map(\.id), to: k) }
-                    }
-                }
-            }
-            Divider()
-            Button("重新命名說話者「\(editor.displayName(segment.speaker))」…") { rename(segment.speaker) }
-            Button("新增說話者…") { add([segment.id]) }
-        } label: {
-            SpeakerChip(name: editor.displayName(segment.speaker), key: segment.speaker)
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .id(row.id)
     }
 }

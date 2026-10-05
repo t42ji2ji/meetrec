@@ -1,8 +1,8 @@
+import AppKit
 import SwiftUI
 
 struct DashboardView: View {
     @ObservedObject var model: DashboardModel
-    @State private var dropTargeted = false
     @State private var renameText = ""
 
     var body: some View {
@@ -13,18 +13,32 @@ struct DashboardView: View {
             DetailView(model: model)
         }
         .navigationTitle("MeetRec")
-        .searchable(text: $model.search, placement: .sidebar, prompt: "搜尋標題或逐字稿")
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button { model.importWithPanel() } label: { Label("匯入…", systemImage: "square.and.arrow.down") }
                     .help("匯入音檔或影片（也可以直接拖進視窗）")
             }
+            // 放在最外層、一直都在：切換錄音時工具列不用重建
+            ToolbarItemGroup(placement: .primaryAction) {
+                let r = model.selectedRecording
+                let has = r.map(model.hasTranscript) ?? false
+                let busy = r.map { model.status[$0.url].map { if case .failed = $0 { false } else { true } } ?? false } ?? false
+                Button { model.retranscribing = r } label: { Label("重新轉錄", systemImage: "arrow.clockwise") }
+                    .help("重新轉逐字稿（會蓋掉手動修改）")
+                    .disabled(!has || busy)
+                Menu {
+                    Button("匯出 SRT…") { if let r { model.export(r, as: .srt) } }
+                    Button("匯出 TXT…") { if let r { model.export(r, as: .txt) } }
+                } label: { Label("匯出", systemImage: "square.and.arrow.up") }
+                    .help("匯出逐字稿")
+                    .disabled(!has)
+                Button { if let r { model.reveal(r) } } label: { Label("在 Finder 中顯示", systemImage: "folder") }
+                    .help("在 Finder 中顯示")
+                    .disabled(r == nil)
+            }
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            model.importFiles(urls)
-        } isTargeted: { dropTargeted = $0 }
         .overlay {
-            if dropTargeted {
+            if model.dropTargeted {
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 6]))
                     .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
@@ -72,7 +86,7 @@ private struct SidebarView: View {
 
     var body: some View {
         let items = model.visibleRecordings
-        List(selection: $model.selection) {
+        List(selection: Binding(get: { model.selection }, set: { model.pick($0) })) {
             if let live = library.live {
                 Section("錄音中") {
                     LiveRow(live: live).tag(DashboardSelection.live)
@@ -81,12 +95,18 @@ private struct SidebarView: View {
             if !items.isEmpty {
                 Section(model.search.isEmpty ? "錄音" : "搜尋結果") {
                     ForEach(items) { r in
-                        RecordingRow(model: model, recording: r, status: library.status[r.url])
+                        RecordingRow(recording: r, status: library.status[r.url], hasTranscript: model.hasTranscript(r), snippet: model.snippet(for: r))
                             .tag(DashboardSelection.recording(r.url))
                             .contextMenu { RecordingActions(model: model, recording: r) }
                     }
                 }
             }
+        }
+        // 不用 .searchable：它在 NavigationSplitView 裡會收集每一欄的 preference，每次切換錄音都把整份逐字稿清單排版一遍
+        .safeAreaInset(edge: .top) {
+            SearchField(text: $model.search, model: model)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 4)
         }
         .overlay {
             if library.recordings.isEmpty && library.live == nil {
@@ -100,6 +120,34 @@ private struct SidebarView: View {
             } else if items.isEmpty && !model.search.isEmpty {
                 ContentUnavailableView.search(text: model.search)
             }
+        }
+    }
+}
+
+private struct SearchField: NSViewRepresentable {
+    @Binding var text: String
+    let model: DashboardModel
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let f = NSSearchField()
+        f.placeholderString = "搜尋標題或逐字稿"
+        f.sendsSearchStringImmediately = true
+        f.delegate = context.coordinator
+        model.focusSearch = { [weak f] in f?.window?.makeFirstResponder(f) }
+        return f
+    }
+
+    func updateNSView(_ f: NSSearchField, context: Context) {
+        if f.stringValue != text { f.stringValue = text }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        let text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+        func controlTextDidChange(_ note: Notification) {
+            if let f = note.object as? NSSearchField { text.wrappedValue = f.stringValue }
         }
     }
 }
@@ -128,13 +176,14 @@ private struct LiveRow: View {
 }
 
 private struct RecordingRow: View {
-    @ObservedObject var model: DashboardModel
     let recording: Library.Recording
     let status: Library.Status?
+    let hasTranscript: Bool
+    let snippet: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(recording.title).lineLimit(1)
+            Text(recording.title).lineLimit(1).truncationMode(.middle).help(recording.title)
             HStack(spacing: 6) {
                 Text(recording.dateText)
                 Text(Transcript.clock(recording.duration))
@@ -143,7 +192,7 @@ private struct RecordingRow: View {
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(.secondary)
-            if let s = model.snippet(for: recording) {
+            if let s = snippet {
                 Text(s).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
         }
@@ -162,7 +211,7 @@ private struct RecordingRow: View {
         case .failed:
             Label("失敗", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
         case nil:
-            if !model.hasTranscript(recording) { Text("尚未轉錄").foregroundStyle(.tertiary) }
+            if !hasTranscript { Text("尚未轉錄").foregroundStyle(.tertiary) }
         }
     }
 }
@@ -191,21 +240,18 @@ private struct RecordingActions: View {
 
 // MARK: 右邊
 
+/// 不觀察 Library：錄音中每秒更新的 live 只讓 LiveDetail 重畫
 private struct DetailView: View {
     @ObservedObject var model: DashboardModel
-    @ObservedObject private var library = Library.shared
 
     var body: some View {
-        switch model.selection {
+        switch model.shown {
         case .live:
-            if let live = library.live {
-                LiveDetail(live: live)
-            } else {
-                ProgressView("正在存檔…")
-            }
+            LiveDetail()
         case .recording:
             if let r = model.selectedRecording {
-                RecordingDetail(model: model, recording: r, status: library.status[r.url]).id(r.url)
+                // 不用 .id：換錄音時沿用同一組畫面，只換內容
+                RecordingDetail(model: model, recording: r, status: model.status[r.url])
             } else {
                 ContentUnavailableView("找不到這場錄音", systemImage: "questionmark.folder", description: Text("檔案可能被移走或刪掉了。"))
             }
@@ -216,9 +262,17 @@ private struct DetailView: View {
 }
 
 private struct LiveDetail: View {
-    let live: Library.Live
+    @ObservedObject private var library = Library.shared
 
     var body: some View {
+        if let live = library.live {
+            content(live)
+        } else {
+            ProgressView("正在存檔…")
+        }
+    }
+
+    private func content(_ live: Library.Live) -> some View {
         VStack(spacing: 18) {
             Label(live.paused ? "已暫停" : "錄音中", systemImage: live.paused ? "pause.circle.fill" : "record.circle")
                 .font(.headline)
@@ -253,6 +307,8 @@ private struct RecordingDetail: View {
     let recording: Library.Recording
     let status: Library.Status?
     @State private var title = ""
+    /// title 是哪一場的標題：換錄音時欄位還沒失焦，不能把舊的字套到新的錄音上
+    @State private var titleURL: URL?
     @FocusState private var editingTitle: Bool
 
     var body: some View {
@@ -262,22 +318,6 @@ private struct RecordingDetail: View {
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             PlayerBar(player: model.player, clock: model.player.clock)
-        }
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                let has = model.hasTranscript(recording)
-                Button { model.retranscribing = recording } label: { Label("重新轉錄", systemImage: "arrow.clockwise") }
-                    .help("重新轉逐字稿（會蓋掉手動修改）")
-                    .disabled(!has || busy)
-                Menu {
-                    Button("匯出 SRT…") { model.export(recording, as: .srt) }
-                    Button("匯出 TXT…") { model.export(recording, as: .txt) }
-                } label: { Label("匯出", systemImage: "square.and.arrow.up") }
-                    .help("匯出逐字稿")
-                    .disabled(!has)
-                Button { model.reveal(recording) } label: { Label("在 Finder 中顯示", systemImage: "folder") }
-                    .help("在 Finder 中顯示")
-            }
         }
     }
 
@@ -311,12 +351,20 @@ private struct RecordingDetail: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear { title = recording.title }
+        .onAppear { title = recording.title; titleURL = recording.url }
+        .onChange(of: recording.url) { old, _ in
+            // 改到一半就切到別場：改名還是套用到原本那一場
+            let t = title.trimmingCharacters(in: .whitespaces)
+            if titleURL == old, let r = model.library.recordings.first(where: { $0.url == old }), !t.isEmpty, t != r.title {
+                model.rename(r, to: t)
+            }
+            title = recording.title
+            titleURL = recording.url
+        }
     }
 
     private func commitTitle() {
-        // 改名成功後舊的畫面還會收到失焦，這時 selection 已經換成新路徑，不要再改一次
-        guard model.selection == .recording(recording.url) else { return }
+        guard titleURL == recording.url else { return }
         let t = title.trimmingCharacters(in: .whitespaces)
         guard !t.isEmpty, t != recording.title else {
             title = recording.title
@@ -339,8 +387,9 @@ private struct RecordingDetail: View {
                 EmptyView()
             }
             if let editor {
-                TranscriptView(editor: editor, player: model.player)
-                    .disabled(busy)
+                // 換錄音就換一個新的清單（捲動位置回到最上面、編輯狀態清掉）
+                // disabled 是環境值，傳不進另一個 NSHostingView，要套在裡面
+                Isolated(content: TranscriptView(editor: editor, player: model.player).disabled(busy).allowsHitTesting(!busy).id(editor.recording.url))
                     .opacity(busy ? 0.45 : 1)
             } else {
                 switch status {
@@ -393,6 +442,22 @@ private struct RecordingDetail: View {
             Spacer()
             Button("重試") { model.transcribe(recording) }
         }
+    }
+}
+
+/// 包一層自己的 NSHostingView：NavigationSplitView 每次更新都會往下收集 preference，
+/// 穿過長逐字稿的 LazyVStack 時會逼它把一大堆列重新排版（實測一次切換 20–30 ms）。隔開之後只有逐字稿自己變動時才排版
+private struct Isolated<Content: View>: NSViewRepresentable {
+    let content: Content
+
+    func makeNSView(context: Context) -> NSHostingView<Content> {
+        let v = NSHostingView(rootView: content)
+        v.sizingOptions = []
+        return v
+    }
+
+    func updateNSView(_ v: NSHostingView<Content>, context: Context) {
+        v.rootView = content
     }
 }
 
