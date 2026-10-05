@@ -29,7 +29,9 @@ enum Transcriber {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         var t: Transcript
-        if try run(ffprobe, ["-v", "error", "-show_entries", "format_tags=comment", "-of", "csv=p=0", audio.path]).contains(tag) {
+        // 標記可能跟著轉檔被複製到單聲道檔，所以也要確認是雙聲道
+        let probe = try run(ffprobe, ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels:format_tags=comment", "-of", "default=nw=1", audio.path])
+        if probe.contains(tag), probe.contains("channels=2") {
             let mic = try extract(audio, ["-af", "pan=mono|c0=c0"], tmp.appendingPathComponent("mic"))
             let tab = try extract(audio, ["-af", "pan=mono|c0=c1"], tmp.appendingPathComponent("tab"))
             let turns = diarizeInBackground(tab.wav)
