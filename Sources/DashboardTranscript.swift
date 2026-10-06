@@ -385,7 +385,10 @@ struct TranscriptView: View {
                 }
                 .onReceive(editor.playing.$id.removeDuplicates()) { id in
                     guard let id, player.isPlaying, editingID == nil, Date().timeIntervalSince(userScrolledAt) > 4 else { return }
-                    withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(id, anchor: .center) }
+                    // $id 在值寫進去之前就送出；當下捲動會讓每一列用舊的 id 重畫，highlight 就一直慢一句。等這一輪跑完再捲
+                    DispatchQueue.main.async {
+                        withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(id, anchor: .center) }
+                    }
                 }
             }
         }
