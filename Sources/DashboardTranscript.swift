@@ -656,33 +656,38 @@ private struct SpeakerEditor: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             TextField(L("名稱", "Name"), text: $name, prompt: Text(L("不標說話者", "No label")))
-                .textFieldStyle(.plain)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(editor.color(key))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(editor.color(key).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .textFieldStyle(.roundedBorder)
                 .focused($focused)
                 .onSubmit { dismiss() }
                 .onExitCommand { cancelled = true; dismiss() }
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 10), count: 6), alignment: .leading, spacing: 10) {
+            Divider()
+            Text(L("顏色", "Color"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            // 跟「提醒事項」的列表顏色一樣：選到的打勾，外面再隔一圈
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(22), spacing: 10), count: 6), alignment: .leading, spacing: 10) {
                 ForEach(speakerPalette.indices, id: \.self) { i in
                     let selected = editor.colorIndex(key) == i
                     Circle()
-                        .fill(speakerPalette[i])
-                        .frame(width: 18, height: 18)
-                        .padding(3)
-                        .overlay(Circle().strokeBorder(speakerPalette[i], lineWidth: 2).opacity(selected ? 1 : 0))
+                        .fill(speakerPalette[i].gradient)
+                        .frame(width: 22, height: 22)
+                        .overlay {
+                            if selected {
+                                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                            }
+                        }
+                        .overlay(Circle().strokeBorder(speakerPalette[i].opacity(selected ? 0.45 : 0), lineWidth: 2).padding(-4))
                         .contentShape(Circle())
                         .onTapGesture { editor.setColor(key, i) }
                         .pointerStyle(.link)
                 }
             }
+            .padding(.leading, 2)
         }
         .padding(14)
-        .frame(width: 236)
+        .frame(width: 228)
         .onAppear {
             name = editor.transcript.name(key)
             focused = true
