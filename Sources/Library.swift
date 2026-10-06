@@ -111,6 +111,8 @@ final class Library: ObservableObject {
         if let s = status[url], !isFailed(s) { return }
         status[url] = .queued
         Transcriber.queue.async {
+            // 輪到了就算在轉：解碼、VAD、載入模型要一陣子才有第一個進度，不然長的檔案會一直顯示排隊中
+            DispatchQueue.main.async { self.status[url] = .transcribing(0) }
             let result = Result {
                 try Transcriber.transcribe(url) { p in
                     DispatchQueue.main.async { self.status[url] = .transcribing(p) }
