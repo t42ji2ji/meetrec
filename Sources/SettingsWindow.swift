@@ -206,6 +206,7 @@ enum About {
         whisper.cpp（MIT）、sherpa-onnx（Apache 2.0）、ONNX Runtime（MIT）
         Whisper（MIT，OpenAI）、Silero VAD（MIT）
         pyannote segmentation 3.0（MIT）、3D-Speaker CAM++（Apache 2.0）
+        Lobe Icons（MIT）
 
         """, attributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor])
         credits.append(NSAttributedString(string: L("授權全文", "Full license texts"), attributes: [.font: NSFont.systemFont(ofSize: 11), .link: licenses]))

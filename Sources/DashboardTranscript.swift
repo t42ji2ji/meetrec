@@ -20,6 +20,8 @@ final class TranscriptEditor: ObservableObject {
 
     let recording: Library.Recording
     let playing = Playing()
+    /// ⌥⌘F 的取代列
+    @Published var replacing = false
     @Published private(set) var transcript: Transcript
     /// transcript 變動時算一次，畫面每次重畫直接用
     @Published private(set) var rows: [Row] = []
@@ -101,6 +103,97 @@ final class TranscriptEditor: ObservableObject {
         transcript.segments[i].text = text
         rows[i].segment.text = text
         scheduleSave()
+    }
+
+    /// 編輯模式：同一個人連續講的句子接成一段。句子之間依停頓長短補標點、分段，只是顯示用，存檔時會拿掉
+    func turnText(_ ids: [UUID]) -> String {
+        let parts = ids.map(text)
+        let seps = separators(ids)
+        return parts.enumerated().map { $1 + ($0 < seps.count ? seps[$0] : "") }.joined()
+    }
+
+    /// 編輯模式改了整段：拆回原本的句子，時間才對得上
+    func setTurnText(_ ids: [UUID], _ new: String) {
+        for (id, t) in zip(ids, Self.redistribute(ids.map(text), separators(ids), into: new)) { setText(id, t) }
+    }
+
+    /// 第 k 句和下一句之間放什麼。whisper 的句子首尾相接（上一句結束＝下一句開始），只有真的沒人講話才有空檔，
+    /// 所以中文句子之間一律「，」，停超過 1.5 秒「。」；停超過 3 秒或這段累積 150 字就換段。
+    /// 句子本來就有標點或是英文時不補標點
+    private func separators(_ ids: [UUID]) -> [String] {
+        let segs = ids.compactMap { index[$0].map { transcript.segments[$0] } }
+        var seps: [String] = [], length = 0
+        for k in segs.indices.dropLast() {
+            let gap = segs[k + 1].start - segs[k].end
+            length += segs[k].text.count
+            let cjk = segs[k].text.last.map { !$0.isASCII && !$0.isPunctuation } ?? false
+            if gap > 3 || length >= 150 {
+                seps.append((cjk ? "。" : "") + "\n\n")
+                length = 0
+            } else if cjk, gap > 1.5 {
+                seps.append("。")
+            } else if cjk {
+                seps.append("，")
+            } else {
+                // 中文標點後面不用空格
+                seps.append(segs[k].text.last.map { !$0.isASCII && $0.isPunctuation } ?? false ? "" : " ")
+            }
+        }
+        return seps
+    }
+
+    /// 比對改前（句子用 seps 接起來）和改後，句子之間的切點跟著旁邊的字移動：
+    /// 打在切點前面的字算前一句，後面的算下一句。補上去的標點、換行在切點後面，拆回去時從下一句開頭去掉
+    nonisolated static func redistribute(_ parts: [String], _ seps: [String], into new: String) -> [String] {
+        guard parts.count > 1 else { return [new.trimmingCharacters(in: .whitespacesAndNewlines)] }
+        let old = Array(zip(parts, seps + [""]).map { $0 + $1 }.joined()), now = Array(new)
+        var removed = Set<Int>(), inserted = Set<Int>()
+        for change in now.difference(from: old) {
+            switch change {
+            case .remove(let o, _, _): removed.insert(o)
+            case .insert(let o, _, _): inserted.insert(o)
+            }
+        }
+        // 舊的第 i 個字在新字串裡的位置
+        var map = [Int](repeating: 0, count: old.count + 1)
+        var j = 0
+        for i in 0...old.count {
+            while inserted.contains(j) { j += 1 }
+            map[i] = j
+            if i < old.count, !removed.contains(i) { j += 1 }
+        }
+        var cuts: [Int] = [], at = 0
+        for (p, sep) in zip(parts.dropLast(), seps) {
+            at += p.count
+            cuts.append(map[at])
+            at += sep.count
+        }
+        let bounds = [0] + cuts + [now.count]
+        let added = CharacterSet(charactersIn: "，。").union(.whitespacesAndNewlines)
+        return (0..<parts.count).map { k in
+            var t = Substring(String(now[min(bounds[k], bounds[k + 1])..<bounds[k + 1]]))
+            if k > 0 { t = t.drop { $0.unicodeScalars.allSatisfy(added.contains) } }
+            return t.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    /// 取代列：幾處符合（不分大小寫）
+    func count(_ find: String) -> Int {
+        guard !find.isEmpty else { return 0 }
+        return transcript.segments.reduce(0) { n, s in
+            var r = s.text.startIndex..<s.text.endIndex, c = 0
+            while let m = s.text.range(of: find, options: .caseInsensitive, range: r) { c += 1; r = m.upperBound..<s.text.endIndex }
+            return n + c
+        }
+    }
+
+    func replaceAll(_ find: String, with replacement: String) {
+        guard !find.isEmpty else { return }
+        for i in transcript.segments.indices {
+            transcript.segments[i].text = transcript.segments[i].text.replacingOccurrences(of: find, with: replacement, options: .caseInsensitive)
+        }
+        rebuild()
+        flush()
     }
 
     func assign(_ ids: [UUID], to speaker: String) {
@@ -194,7 +287,12 @@ struct TranscriptView: View {
     enum Field: Hashable {
         case segment(UUID)
         case speaker(String)
+        /// 編輯模式的一段，用段首那句的 id
+        case turn(UUID)
     }
+
+    /// 逐句：一句一列、有時間；編輯：同一個人連續講的併成一段，一直是輸入框，改字快
+    enum Mode: String { case segments, editor }
 
     @ObservedObject var editor: TranscriptEditor
     let player: DashboardPlayer
@@ -208,20 +306,44 @@ struct TranscriptView: View {
     @State private var addingFor: [UUID]?
     /// 從說話者發言清單跳過去的那一句，捲到它
     @State private var jumpTo: UUID?
+    @AppStorage("transcriptFontSize") private var fontSize = Settings.defaultFontSize
+    @AppStorage("transcriptMode") private var mode = Mode.segments
 
     var body: some View {
         VStack(spacing: 0) {
-            legend
+            if editor.replacing {
+                ReplaceBar(editor: editor)
+                Divider()
+            }
+            HStack(spacing: 0) {
+                legend
+                Picker(L("檢視", "View"), selection: $mode) {
+                    Text(L("逐句", "Segments")).tag(Mode.segments)
+                    Text(L("編輯", "Editor")).tag(Mode.editor)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                Button { editor.replacing.toggle() } label: { Image(systemName: "text.magnifyingglass") }
+                    .buttonStyle(.borderless)
+                    .help(L("尋找並取代（⌥⌘F）", "Find and Replace (⌥⌘F)"))
+                    .padding(.leading, 10)
+                    .padding(.trailing, 20)
+            }
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
+                    Group {
+                    if mode == .editor {
+                        turns
+                    } else {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(editor.rows) { row in
                             SegmentRow(row: row, playing: editor.playing,
                                        speaker: editor.displayName(row.segment.speaker),
                                        editing: editingID == row.id ? Binding(get: { editor.text(row.id) }, set: { editor.setText(row.id, $0) }) : nil,
                                        focus: $focus,
-                                       play: { focus = nil; player.seek(row.segment.start); player.play() },
+                                       play: { focus = nil; player.seek(row.segment.start) },
                                        edit: {
                                            clickedAt = NSEvent.mouseLocation
                                            CaretPlacer.shared.arm(at: NSEvent.mouseLocation)
@@ -232,6 +354,10 @@ struct TranscriptView: View {
                                 .padding(.top, row.isHead ? 10 : 0)
                         }
                     }
+                    }
+                    }
+                    // 只有沒自己指定字型的句子內文會跟著變；時間、說話者維持原大小
+                    .font(.system(size: fontSize))
                     .padding(12)
                 }
                 .onScrollPhaseChange { old, new in
@@ -255,6 +381,7 @@ struct TranscriptView: View {
                 editor.flush()
                 if editingID == id { editingID = nil }
             }
+            if case .turn = old, new != old { editor.flush() }
             if case .speaker(let key) = old, new != old {
                 if editingSpeaker == key {
                     editor.renameSpeaker(key, to: nameText)
@@ -271,6 +398,24 @@ struct TranscriptView: View {
         } message: {
             Text(L("新增後這句會改成這個人說的。", "This line will be reassigned to the new speaker."))
         }
+    }
+
+    private var turns: some View {
+        LazyVStack(alignment: .leading, spacing: 30) {
+            ForEach(editor.rows.filter(\.isHead)) { row in
+                VStack(alignment: .leading, spacing: 4) {
+                    // 編輯模式的重點是文字，說話者只用淡淡的小字標
+                    Text(editor.displayName(row.segment.speaker))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(speakerColor(row.segment.speaker).opacity(0.7))
+                        .onTapGesture { showMenu(for: row) }
+                        .pointerStyle(.link)
+                    TurnField(ids: row.turn, editor: editor, focus: $focus)
+                }
+                .padding(.horizontal, 8)
+            }
+        }
+        .padding(.top, 8)
     }
 
     private var legend: some View {
@@ -297,7 +442,6 @@ struct TranscriptView: View {
                             userScrolledAt = .distantPast
                             jumpTo = turn.id
                             player.seek(turn.start)
-                            player.play()
                         }
                     }
                 }
@@ -325,7 +469,13 @@ struct TranscriptView: View {
         let menu = NSMenu()
         let current = row.segment.speaker
         let others = editor.speakerKeys.filter { $0 != current }
-        if !others.isEmpty {
+        if !others.isEmpty, mode == .editor {
+            menu.addItem(.sectionHeader(title: L("這段改成", "Change This Passage To")))
+            for k in others {
+                menu.addItem(MenuItem(editor.displayName(k)) { editor.assign(row.turn, to: k) })
+            }
+            menu.addItem(.separator())
+        } else if !others.isEmpty {
             menu.addItem(.sectionHeader(title: L("這句改成", "Change This Line To")))
             for k in others {
                 menu.addItem(MenuItem(editor.displayName(k)) { editor.assign([row.id], to: k) })
@@ -380,6 +530,57 @@ final class CaretPlacer {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
         point = nil
+    }
+}
+
+/// ⌥⌘F：整份逐字稿一次取代
+private struct ReplaceBar: View {
+    @ObservedObject var editor: TranscriptEditor
+    @State private var find = ""
+    @State private var replacement = ""
+    @FocusState private var findFocused: Bool
+
+    var body: some View {
+        let n = editor.count(find)
+        HStack(spacing: 8) {
+            TextField(L("尋找", "Find"), text: $find)
+                .textFieldStyle(.roundedBorder)
+                .focused($findFocused)
+            TextField(L("取代為", "Replace with"), text: $replacement)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { if n > 0 { editor.replaceAll(find, with: replacement) } }
+            Text(find.isEmpty ? "" : L("\(n) 處", n == 1 ? "1 match" : "\(n) matches"))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 64, alignment: .trailing)
+            Button(L("全部取代", "Replace All")) { editor.replaceAll(find, with: replacement) }
+                .disabled(n == 0)
+            Button { editor.replacing = false } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                .buttonStyle(.borderless)
+                .help(L("關閉（Esc）", "Close (Esc)"))
+        }
+        .onExitCommand { editor.replacing = false }
+        .controlSize(.regular)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .onAppear { findFocused = true }
+    }
+}
+
+/// 編輯模式的一段。打字時用自己的草稿：存回去的版本會把空白整理掉，直接綁會讓人打不出句尾的空白
+private struct TurnField: View {
+    let ids: [UUID]
+    @ObservedObject var editor: TranscriptEditor
+    var focus: FocusState<TranscriptView.Field?>.Binding
+    @State private var draft: String?
+
+    var body: some View {
+        TextField("", text: Binding(get: { draft ?? editor.turnText(ids) }, set: { draft = $0; editor.setTurnText(ids, $0) }), axis: .vertical)
+            .textFieldStyle(.plain)
+            .lineSpacing(3)
+            .focused(focus, equals: .turn(ids[0]))
+            .onSubmit { focus.wrappedValue = nil }
+            .onChange(of: focus.wrappedValue) { _, f in if f != .turn(ids[0]) { draft = nil } }
     }
 }
 
@@ -444,6 +645,7 @@ private struct TurnRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+        .pointerStyle(.link)
     }
 }
 
@@ -532,6 +734,7 @@ private struct SegmentRow: View {
         .contentShape(Rectangle())
         // 正在改這一句時整列不接點擊，點輸入框裡移游標才不會變成跳播
         .gesture(TapGesture().onEnded(play), including: editing == nil ? .all : .subviews)
+        .pointerStyle(editing == nil ? .link : nil)
         .onHover { hovering = $0 }
         .id(row.id)
     }

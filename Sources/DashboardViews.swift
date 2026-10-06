@@ -11,7 +11,15 @@ struct DashboardView: View {
             SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 270, max: 400)
         } detail: {
-            DetailView(model: model)
+            // 不用 .inspector：它打開時會把整個視窗撐寬，這裡要的是從中間這欄切出空間
+            HSplitView {
+                DetailView(model: model)
+                    .frame(minWidth: 360, maxWidth: .infinity)
+                if model.chatOpen {
+                    AssistantPanel(model: model)
+                        .frame(minWidth: 280, idealWidth: 340, maxWidth: 560)
+                }
+            }
         }
         .id(language)
         .navigationTitle("MeetRec")
@@ -38,6 +46,8 @@ struct DashboardView: View {
                 Button { if let r { model.reveal(r) } } label: { Label(L("在 Finder 中顯示", "Show in Finder"), systemImage: "folder") }
                     .help(L("在 Finder 中顯示", "Show in Finder"))
                     .disabled(r == nil)
+                Button { model.toggleChat() } label: { Label { Text(L("AI 對話", "AI Chat")) } icon: { AssistantMarks(kinds: model.assistantKinds) } }
+                    .help(L("和 AI 討論這場會議（⌘E）", "Discuss this meeting with AI (⌘E)"))
             }
         }
         .overlay {
@@ -512,6 +522,224 @@ private struct PlayerBar: View {
         .padding(.vertical, 10)
         .disabled(player.url == nil)
         .background(.bar)
+    }
+}
+
+// MARK: AI 對話
+
+private struct AssistantPanel: View {
+    @ObservedObject var model: DashboardModel
+    @AppStorage("assistant") private var preferred = AssistantKind.claude
+    /// 各工具選的模型，空字串＝工具自己的預設
+    @AppStorage("assistantModel.claude") private var claudeModel = ""
+    @AppStorage("assistantModel.codex") private var codexModel = ""
+
+    var body: some View {
+        let kinds = model.assistantKinds
+        if model.assistants == nil {
+            ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if kinds.isEmpty {
+            ContentUnavailableView {
+                Label(L("需要先安裝 Claude Code 或 Codex", "Install Claude Code or Codex First"), systemImage: "bubble.left.and.text.bubble.right")
+            } description: {
+                Text(L("MeetRec 用你電腦上的 AI 工具讀逐字稿，登入的是你自己的帳號。", "MeetRec reads transcripts with the AI tool on your Mac, signed in with your own account."))
+            } actions: {
+                Link(L("安裝 Claude Code", "Install Claude Code"), destination: URL(string: "https://code.claude.com/docs/en/setup")!)
+                Link(L("安裝 Codex", "Install Codex"), destination: URL(string: "https://developers.openai.com/codex/cli")!)
+            }
+        } else if let r = model.selectedRecording, model.editor?.recording.url == r.url, let kind = kinds.contains(preferred) ? preferred : kinds.first {
+            let chat = model.chat(for: r, kind: kind)
+            let modelID = kind == .claude ? $claudeModel : $codexModel
+            AssistantChatView(chat: chat, kinds: kinds, kind: $preferred, modelID: modelID,
+                              send: { model.ask($0, in: chat, about: r, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue) },
+                              reset: { model.resetChat(for: r, kind: kind) })
+                .id(ObjectIdentifier(chat))
+        } else {
+            ContentUnavailableView(L("選一場有逐字稿的錄音", "Select a Transcribed Recording"), systemImage: "bubble.left.and.text.bubble.right")
+        }
+    }
+}
+
+private struct AssistantChatView: View {
+    @ObservedObject var chat: AssistantChat
+    let kinds: [AssistantKind]
+    @Binding var kind: AssistantKind
+    @Binding var modelID: String
+    let send: (String) -> Void
+    let reset: () -> Void
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let models = chat.kind.models
+        VStack(spacing: 0) {
+            HStack {
+                Menu {
+                    if kinds.count > 1 {
+                        Picker(L("工具", "Tool"), selection: $kind) {
+                            ForEach(kinds) { Text($0.name).tag($0) }
+                        }
+                        .pickerStyle(.inline)
+                    }
+                    Picker(L("模型", "Model"), selection: $modelID) {
+                        Text(L("預設", "Default")).tag("")
+                        ForEach(models, id: \.id) { Text($0.name).tag($0.id) }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Text(chat.kind.name + " · " + (models.first { $0.id == modelID }?.name ?? L("預設", "Default")))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                Spacer()
+                Button(action: reset) { Image(systemName: "square.and.pencil") }
+                    .buttonStyle(.borderless)
+                    .help(L("新對話", "New Chat"))
+                    .disabled(chat.messages.isEmpty)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 40)
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(chat.messages) { message($0).id($0.id) }
+                    }
+                    .padding(14)
+                }
+                .onChange(of: chat.messages.last?.text) { _, _ in
+                    if let id = chat.messages.last?.id { withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .bottom) } }
+                }
+            }
+            .overlay {
+                if chat.messages.isEmpty {
+                    ContentUnavailableView(L("問問這場會議", "Ask About This Meeting"), systemImage: "bubble.left.and.text.bubble.right")
+                }
+            }
+            HStack(alignment: .bottom, spacing: 6) {
+                TextField(L("問點什麼…", "Ask something…"), text: $draft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...8)
+                    .focused($focused)
+                    .onSubmit(submit)
+                    .padding(.vertical, 3)
+                if chat.running {
+                    Button { chat.stop() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 20)).foregroundStyle(.secondary) }
+                        .help(L("停止", "Stop"))
+                } else {
+                    let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    Button(action: submit) {
+                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 20))
+                            .foregroundStyle(empty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
+                    }
+                    .disabled(empty)
+                    .help(L("送出（Return）", "Send (Return)"))
+                }
+            }
+            .buttonStyle(.borderless)
+            .padding(.leading, 12)
+            .padding(.trailing, 5)
+            .padding(.vertical, 5)
+            .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator))
+            .padding(12)
+        }
+        .onAppear { focused = true }
+    }
+
+    private func submit() {
+        let q = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, !chat.running else { return }
+        draft = ""
+        send(q)
+    }
+
+    @ViewBuilder private func message(_ m: AssistantChat.Message) -> some View {
+        switch m.role {
+        case .user:
+            Text(m.text)
+                .textSelection(.enabled)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .padding(.leading, 40)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        case .assistant:
+            Group {
+                if m.text.isEmpty {
+                    TypingDots()
+                } else {
+                    Text((try? AttributedString(markdown: m.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(m.text))
+                        .textSelection(.enabled)
+                        .lineSpacing(2)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .padding(.trailing, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .error:
+            Label(m.text, systemImage: "exclamationmark.triangle.fill")
+                .font(.callout)
+                .foregroundStyle(.red)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// 工具列按鈕的圖示：裝了哪些工具就疊哪些的標誌
+private struct AssistantMarks: View {
+    let kinds: [AssistantKind]
+
+    var body: some View {
+        HStack(spacing: -6) {
+            // 一個都沒裝：兩個灰色空圓
+            if kinds.isEmpty {
+                ForEach(0..<2, id: \.self) { _ in
+                    Circle().strokeBorder(.secondary, lineWidth: 1.2).frame(width: 19, height: 19)
+                }
+            }
+            ForEach(Array(kinds.enumerated()), id: \.element) { i, k in
+                Image(nsImage: k.mark)
+                    .resizable()
+                    .renderingMode(.template)
+                    .foregroundStyle(k == .claude ? Color.white : Color.black)
+                    .padding(k == .claude ? 3 : 3.5)
+                    .frame(width: 19, height: 19)
+                    .background(k == .claude ? Color(red: 0.85, green: 0.47, blue: 0.34) : Color.white, in: Circle())
+                    // 白底在淺色工具列上會糊掉，描一圈淡灰
+                    .overlay(Circle().strokeBorder(k == .claude ? Color.clear : Color.black.opacity(0.15), lineWidth: 0.5))
+                    .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 1.2).padding(-1.2))
+                    .zIndex(Double(-i))
+            }
+        }
+    }
+}
+
+extension AssistantKind {
+    var mark: NSImage {
+        NSImage(contentsOf: Bundle.main.resourceURL!.appendingPathComponent("icons/\(rawValue).svg")) ?? NSImage()
+    }
+}
+
+/// 等回覆時的三個點，像「訊息」的對方正在輸入
+private struct TypingDots: View {
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 4) {
+                ForEach(0..<3) { i in
+                    Circle()
+                        .frame(width: 7, height: 7)
+                        .opacity(0.3 + 0.6 * max(0, sin((t * 2 - Double(i) * 0.35) * .pi)))
+                }
+            }
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 5)
+        }
     }
 }
 

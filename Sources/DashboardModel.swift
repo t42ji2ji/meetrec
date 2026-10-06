@@ -38,6 +38,11 @@ final class DashboardModel: ObservableObject {
     var focusSearch: () -> Void = {}
     /// Library.status 的副本：畫面只看這個，不直接觀察 Library（錄音中每秒更新的 live 不會讓右邊整個重畫）
     @Published private(set) var status: [URL: Library.Status] = [:]
+    /// 右邊的 AI 對話欄（⌘E）
+    @Published var chatOpen = false
+    /// 本機找到的 Claude Code／Codex；還沒偵測完是 nil
+    @Published private(set) var assistants: AssistantCLI.Found?
+    private var chats: [String: AssistantChat] = [:]
 
     /// 讀過的逐字稿，用檔案修改時間判斷還能不能用；切換錄音時不用再讀檔解析
     private var transcripts: [URL: (modified: Date, transcript: Transcript)] = [:]
@@ -252,6 +257,45 @@ final class DashboardModel: ObservableObject {
         } catch {
             self.error = "\(error)"
         }
+    }
+
+    // MARK: AI 對話
+
+    var assistantKinds: [AssistantKind] { AssistantKind.allCases.filter { assistants?.tools[$0] != nil } }
+
+    func detectAssistants() {
+        Task { assistants = await AssistantCLI.detect() }
+    }
+
+    /// 打開時重新找一次：使用者可能剛裝好
+    func toggleChat() {
+        chatOpen.toggle()
+        if chatOpen { detectAssistants() }
+    }
+
+    /// 每場錄音、每種工具各一段對話，切走再切回來還在
+    func chat(for r: Library.Recording, kind: AssistantKind) -> AssistantChat {
+        let key = "\(kind.rawValue)|\(r.url.path)"
+        if let c = chats[key] { return c }
+        let c = AssistantChat(kind: kind)
+        chats[key] = c
+        return c
+    }
+
+    func resetChat(for r: Library.Recording, kind: AssistantKind) {
+        chats["\(kind.rawValue)|\(r.url.path)"]?.stop()
+        chats["\(kind.rawValue)|\(r.url.path)"] = nil
+        objectWillChange.send()
+    }
+
+    /// 送出問題；第一句會附上逐字稿（含還沒存檔的修改）
+    func ask(_ question: String, in chat: AssistantChat, about r: Library.Recording, model: String?) {
+        guard let found = assistants, let tool = found.tools[chat.kind] else { return }
+        chat.send(question, transcript: { [weak self] in
+            guard let self else { return nil }
+            let t = editor?.recording.url == r.url ? editor?.transcript : transcript(for: r.url)
+            return t.map { "\(r.title)（\(r.dateText)）\n\n" + $0.txt() }
+        }, model: model, tool: tool, path: found.path, folder: r.folder)
     }
 
     static let importTypes: [UTType] = [.audio, .movie]

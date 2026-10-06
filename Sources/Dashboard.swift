@@ -17,6 +17,7 @@ final class Dashboard: NSObject, NSWindowDelegate {
             model.selection = .recording(first.url)
         }
         let w = window ?? makeWindow()
+        model.detectAssistants()
         if NSApp.activationPolicy() != .regular {
             NSApp.setActivationPolicy(.regular)
             // accessory app 沒有主選單，不補的話文字欄位裡 Cmd-C/V/Z 都沒反應
@@ -82,6 +83,11 @@ final class Dashboard: NSObject, NSWindowDelegate {
     @objc private func find() { model.focusSearch() }
     @objc private func openSettings() { SettingsWindow.shared.show() }
     @objc private func openAbout() { About.show() }
+    @objc private func toggleChat() { model.toggleChat() }
+    @objc private func replace() { model.editor?.replacing = true }
+    @objc private func biggerText() { Settings.transcriptFontSize += 1 }
+    @objc private func smallerText() { Settings.transcriptFontSize -= 1 }
+    @objc private func actualSizeText() { Settings.transcriptFontSize = Settings.defaultFontSize }
 
     private func mainMenu() -> NSMenu {
         let main = NSMenu()
@@ -105,12 +111,25 @@ final class Dashboard: NSObject, NSWindowDelegate {
         importItem.target = self
         let findItem = item(L("搜尋", "Find"), "find", "f")
         findItem.target = self
+        let replaceItem = item(L("取代…", "Replace…"), "replace", "f", [.command, .option])
+        replaceItem.target = self
+        let chatItem = item(L("AI 對話", "AI Chat"), "toggleChat", "e")
+        chatItem.target = self
+        let bigger = item(L("放大", "Bigger"), "biggerText", "+")
+        let smaller = item(L("縮小", "Smaller"), "smallerText", "-")
+        let actual = item(L("實際大小", "Actual Size"), "actualSizeText", "0")
+        // 美式鍵盤上的 ⌘+ 其實是按 ⌘=，藏一個 = 的項目接住它
+        let biggerEquals = item(L("放大", "Bigger"), "biggerText", "=")
+        biggerEquals.isHidden = true
+        biggerEquals.allowsKeyEquivalentWhenHidden = true
+        [bigger, biggerEquals, smaller, actual].forEach { $0.target = self }
         // ⌘Q 只關視窗：MeetRec 平常住在選單列，錄音中按 ⌘Q 不能把錄音停掉。真的要結束用選單列的「結束 MeetRec」
         add("MeetRec", [aboutItem, .separator(), settingsItem, .separator(), item(L("隱藏 MeetRec", "Hide MeetRec"), "hide:", "h"), .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "q"), item(L("結束 MeetRec", "Quit MeetRec"), "terminate:", "")])
         add(L("檔案", "File"), [importItem, .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "w")])
         add(L("編輯", "Edit"), [item(L("還原", "Undo"), "undo:", "z"), item(L("重做", "Redo"), "redo:", "z", [.command, .shift]), .separator(),
-                     item(L("剪下", "Cut"), "cut:", "x"), item(L("拷貝", "Copy"), "copy:", "c"), item(L("貼上", "Paste"), "paste:", "v"), item(L("全選", "Select All"), "selectAll:", "a"), .separator(), findItem])
-        add(L("視窗", "Window"), [item(L("最小化", "Minimize"), "performMiniaturize:", "m"), item(L("縮放", "Zoom"), "performZoom:", "")])
+                     item(L("剪下", "Cut"), "cut:", "x"), item(L("拷貝", "Copy"), "copy:", "c"), item(L("貼上", "Paste"), "paste:", "v"), item(L("全選", "Select All"), "selectAll:", "a"), .separator(), findItem, replaceItem])
+        add(L("顯示方式", "View"), [bigger, biggerEquals, smaller, actual])
+        add(L("視窗", "Window"), [item(L("最小化", "Minimize"), "performMiniaturize:", "m"), item(L("縮放", "Zoom"), "performZoom:", ""), .separator(), chatItem])
         return main
     }
 }

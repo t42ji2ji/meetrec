@@ -15,7 +15,7 @@ fi
 rm -rf $APP && mkdir -p $APP/Contents/MacOS $APP/Contents/Frameworks $APP/Contents/Resources
 cp Info.plist $APP/Contents/Info.plist
 [ -f Resources/AppIcon.icns ] && cp Resources/AppIcon.icns $APP/Contents/Resources/
-cp -R Resources/licenses Resources/*.lproj $APP/Contents/Resources/
+cp -R Resources/licenses Resources/icons Resources/*.lproj $APP/Contents/Resources/
 swiftc -O -target arm64-apple-macos15.0 Sources/*.swift -o $APP/Contents/MacOS/MeetRec
 # 轉逐字稿、分說話者的輔助程式（./vendor.sh 產生）；簽名要由內往外
 [ -x vendor/bin/whisper-cli ] || ./vendor.sh

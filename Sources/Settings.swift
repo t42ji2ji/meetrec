@@ -85,6 +85,13 @@ enum Settings {
         set { defaults.set(newValue, forKey: "askToRecord") }
     }
 
+    /// 逐字稿內文的字級（pt）；主視窗用 @AppStorage("transcriptFontSize") 讀
+    static let defaultFontSize = 18.0
+    static var transcriptFontSize: Double {
+        get { defaults.object(forKey: "transcriptFontSize") as? Double ?? defaultFontSize }
+        set { defaults.set(min(max(newValue, 11), 36), forKey: "transcriptFontSize") }
+    }
+
     /// 錄完自動轉逐字稿
     static var autoTranscribe: Bool {
         get { defaults.object(forKey: "autoTranscribe") as? Bool ?? true }
