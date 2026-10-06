@@ -21,7 +21,7 @@ final class Library: ObservableObject {
 
     enum Status: Equatable {
         case queued
-        case transcribing(Double) // 0...1
+        case transcribing(Double, remaining: TimeInterval?) // 0...1；剩下的秒數算得出來才有
         case failed(String)
     }
 
@@ -112,10 +112,19 @@ final class Library: ObservableObject {
         status[url] = .queued
         Transcriber.queue.async {
             // 輪到了就算在轉：解碼、VAD、載入模型要一陣子才有第一個進度，不然長的檔案會一直顯示排隊中
-            DispatchQueue.main.async { self.status[url] = .transcribing(0) }
+            DispatchQueue.main.async { self.status[url] = .transcribing(0, remaining: nil) }
+            // 速度從第一個進度開始算：前面解碼、找說話段落只做一次，算進去會把剩下的時間估太多
+            nonisolated(unsafe) var first: (at: Date, p: Double)?
             let result = Result {
                 try Transcriber.transcribe(url) { p in
-                    DispatchQueue.main.async { self.status[url] = .transcribing(p) }
+                    DispatchQueue.main.async {
+                        let now = Date()
+                        let f = first ?? (now, p)
+                        first = f
+                        let elapsed = now.timeIntervalSince(f.at)
+                        let remaining = elapsed >= 10 && p - f.p >= 0.02 ? elapsed * (1 - p) / (p - f.p) : nil
+                        self.status[url] = .transcribing(p, remaining: remaining)
+                    }
                 }
             }
             DispatchQueue.main.async {

@@ -45,10 +45,10 @@ enum Transcriber {
             let turns = diarizeInBackground(tab.wav)
             let micDB = levels(mic.pcm)
             // 麥克風比瀏覽器小聲的句子是旁人或喇叭漏進麥克風的聲音，不是我
-            let me = try recognize(mic.wav) { progress($0 * 0.3) }
+            let me = try recognize(mic) { progress($0 * 0.3) }
                 .filter { micLouder(micDB, tabDB, $0) }
             // 跟我說的話重複的：我的聲音被對方那邊的麥克風（例如同一間的同事）收進去又傳回來
-            let others = try recognize(tab.wav) { progress(0.3 + $0 * 0.6) }
+            let others = try recognize(tab) { progress(0.3 + $0 * 0.6) }
                 .filter { o in !me.contains { echoes(o, of: $0) } }
             let who = label(others, turns: try turns.wait(), prefix: "them", single: L("對方", "Them"))
             t = Transcript(segments: me.map { .init(start: $0.start, end: $0.end, speaker: "me", text: $0.text) } + who.segments,
@@ -56,7 +56,7 @@ enum Transcriber {
         } else {
             let mono = try mic ?? wav("mono", channels.count == 2 ? zip(channels[0], channels[1]).map { ($0 + $1) / 2 } : channels[0])
             let turns = diarizeInBackground(mono.wav)
-            let lines = try recognize(mono.wav) { progress($0 * 0.9) }
+            let lines = try recognize(mono) { progress($0 * 0.9) }
             let who = label(lines, turns: try turns.wait(), prefix: "s", single: "")
             t = Transcript(segments: who.segments, speakers: who.names)
         }
@@ -66,14 +66,31 @@ enum Transcriber {
         return t
     }
 
-    private static func recognize(_ wav: URL, progress: @escaping (Double) -> Void) throws -> [Line] {
-        let out = wav.deletingPathExtension()
-        // VAD 先剪掉沒人講話的段落，不然 whisper 會在靜音裡編出「(電話響起)」之類的字
-        try run(whisper, ["-m", Models.current.path, "-l", Settings.transcriptLanguage.rawValue, "--vad", "-vm", vadModel, "-np", "-pp", "-oj", "-of", out.path, wav.path]) { line in
-            if let r = line.range(of: "progress ="), let p = Double(line[r.upperBound...].trimmingCharacters(in: .whitespaces).dropLast()) {
-                progress(p / 100)
-            }
+    private static func recognize(_ audio: (wav: URL, pcm: [Float]), progress: @escaping (Double) -> Void) throws -> [Line] {
+        let out = audio.wav.deletingPathExtension()
+        let duration = Double(audio.pcm.count) / 16000
+        // whisper 自己的進度一次跳 5%（一小時的檔案要 40 秒以上才動一次），所以也看每句印出來的結束時間
+        // stdout、stderr 在不同執行緒進來
+        let lock = NSLock()
+        nonisolated(unsafe) var done = 0.0
+        let report = { (p: Double) in
+            lock.lock()
+            defer { lock.unlock() }
+            guard p > done else { return }
+            done = p
+            progress(min(p, 1))
         }
+        // VAD 先剪掉沒人講話的段落，不然 whisper 會在靜音裡編出「(電話響起)」之類的字
+        try run(whisper, ["-m", Models.current.path, "-l", Settings.transcriptLanguage.rawValue, "--vad", "-vm", vadModel, "-np", "-pp", "-oj", "-of", out.path, audio.wav.path], onStdout: { line in
+            // 「[00:01:02.340 --> 00:01:04.560]  句子」
+            guard line.hasPrefix("["), let r = line.range(of: "--> "), duration > 0 else { return }
+            let parts = line[r.upperBound...].prefix(12).split(separator: ":").compactMap { Double($0) }
+            if parts.count == 3 { report((parts[0] * 3600 + parts[1] * 60 + parts[2]) / duration) }
+        }, onStderr: { line in
+            if let r = line.range(of: "progress ="), let p = Double(line[r.upperBound...].trimmingCharacters(in: .whitespaces).dropLast()) {
+                report(p / 100)
+            }
+        })
         let json = try JSONDecoder().decode(WhisperJSON.self, from: Data(contentsOf: out.appendingPathExtension("json")))
         return json.transcription.compactMap { s in
             // whisper 中文有時繁簡混著出，照設定統一（英文不受影響）
@@ -214,9 +231,9 @@ enum Transcriber {
     }
 }
 
-/// 跑外部指令，回傳 stdout；stderr 一行一行交給 onStderr
+/// 跑外部指令，回傳 stdout；stderr 一行一行交給 onStderr。給了 onStdout 就改成 stdout 一行一行交給它，回傳空字串
 @discardableResult
-func run(_ tool: String, _ args: [String], onStderr: ((String) -> Void)? = nil) throws -> String {
+func run(_ tool: String, _ args: [String], onStdout: ((String) -> Void)? = nil, onStderr: ((String) -> Void)? = nil) throws -> String {
     let p = Process()
     let out = Pipe(), err = Pipe()
     p.executableURL = URL(fileURLWithPath: tool)
@@ -231,9 +248,20 @@ func run(_ tool: String, _ args: [String], onStderr: ((String) -> Void)? = nil) 
             pending = String(pending[pending.index(after: r)...])
         }
     }
+    if let onStdout {
+        var line = ""
+        out.fileHandleForReading.readabilityHandler = { h in
+            line += String(decoding: h.availableData, as: UTF8.self)
+            while let r = line.firstIndex(of: "\n") {
+                onStdout(String(line[..<r]))
+                line = String(line[line.index(after: r)...])
+            }
+        }
+    }
     try p.run()
-    let data = out.fileHandleForReading.readDataToEndOfFile()
+    let data = onStdout == nil ? out.fileHandleForReading.readDataToEndOfFile() : Data()
     p.waitUntilExit()
+    out.fileHandleForReading.readabilityHandler = nil
     err.fileHandleForReading.readabilityHandler = nil
     if p.terminationStatus != 0 { throw TranscribeError.tool((tool as NSString).lastPathComponent, p.terminationStatus) }
     return String(decoding: data, as: UTF8.self)

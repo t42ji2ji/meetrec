@@ -242,12 +242,22 @@ private struct RecordingRow: View {
         .padding(.vertical, 3)
     }
 
+    /// 剩下的時間，進位到分鐘：估計本來就不準，秒數只會一直跳
+    static func left(_ seconds: TimeInterval) -> String {
+        seconds < 60 ? L("剩不到 1 分鐘", "under a minute left") : L("約剩 \(Int((seconds / 60).rounded(.up))) 分鐘", "about \(Int((seconds / 60).rounded(.up))) min left")
+    }
+
     @ViewBuilder private var statusView: some View {
         switch status {
-        case .transcribing(let p):
+        case .transcribing(0, _):
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.mini)
+                Text(L("準備轉錄", "Preparing"))
+            }
+        case .transcribing(let p, let remaining):
             HStack(spacing: 4) {
                 ProgressView(value: p).frame(width: 36).controlSize(.mini)
-                Text(L("轉錄中 \(Int(p * 100))%", "Transcribing \(Int(p * 100))%"))
+                Text(L("轉錄中 \(Int(p * 100))%", "Transcribing \(Int(p * 100))%") + (remaining.map { " · " + Self.left($0) } ?? ""))
             }
         case .queued:
             Text(L("排隊中", "Queued"))
@@ -466,9 +476,15 @@ private struct RecordingDetail: View {
     }
 
     @ViewBuilder private var progressBanner: some View {
-        if case .transcribing(let p) = status {
+        if case .transcribing(0, _) = status {
             VStack(alignment: .leading, spacing: 6) {
-                Text(L("正在轉逐字稿… \(Int(p * 100))%", "Transcribing… \(Int(p * 100))%")).font(.callout.monospacedDigit())
+                Text(L("準備轉錄：解碼音檔、找出說話的段落", "Preparing: decoding audio and finding speech")).font(.callout)
+                ProgressView().progressViewStyle(.linear)
+            }
+        } else if case .transcribing(let p, let remaining) = status {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L("正在轉逐字稿… \(Int(p * 100))%", "Transcribing… \(Int(p * 100))%") + (remaining.map { " · " + RecordingRow.left($0) } ?? ""))
+                    .font(.callout.monospacedDigit())
                 ProgressView(value: p)
             }
         } else {
