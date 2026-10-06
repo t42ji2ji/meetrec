@@ -1,0 +1,4 @@
+/* 系統權限詢問的說明；中文在 Info.plist */
+"NSAppleEventsUsageDescription" = "Reads the browser's meeting tab title to name recordings";
+"NSAudioCaptureUsageDescription" = "Records the meeting audio from your browser";
+"NSMicrophoneUsageDescription" = "Records your voice in meetings";

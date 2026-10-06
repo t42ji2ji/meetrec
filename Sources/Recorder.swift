@@ -6,8 +6,8 @@ enum RecorderError: Error, CustomStringConvertible {
     case noBrowserProcess, coreAudio(String, OSStatus)
     var description: String {
         switch self {
-        case .noBrowserProcess: return "找不到瀏覽器的音訊程式"
-        case .coreAudio(let what, let s): return "\(what) 失敗（\(s)）"
+        case .noBrowserProcess: return L("找不到瀏覽器的音訊程式", "Couldn't find the browser's audio process")
+        case .coreAudio(let what, let s): return L("\(what) 失敗（\(s)）", "\(what) failed (\(s))")
         }
     }
 }
@@ -141,7 +141,7 @@ final class Recorder {
         do {
             try startSession(requireBrowser: false)
         } catch {
-            report("錄音裝置出錯，正在重試（\(error)）")
+            report(L("錄音裝置出錯，正在重試（\(error)）", "Recording device error, retrying (\(error))"))
         }
     }
 
@@ -169,13 +169,13 @@ final class Recorder {
         let desc = CATapDescription(stereoMixdownOfProcesses: targets)
         desc.uuid = UUID()
         desc.isPrivate = true
-        if hasTap { try check(AudioHardwareCreateProcessTap(desc, &tapID), "建立瀏覽器音訊擷取") }
+        if hasTap { try check(AudioHardwareCreateProcessTap(desc, &tapID), L("建立瀏覽器音訊擷取", "Creating browser audio tap")) }
 
         var mic = AudioObjectID(0)
         var a = propAddress(kAudioHardwarePropertyDefaultInputDevice)
         var size = UInt32(4)
         AudioObjectGetPropertyData(systemObject, &a, 0, nil, &size, &mic)
-        guard let micUID = getString(mic, kAudioDevicePropertyDeviceUID) else { throw RecorderError.coreAudio("讀取麥克風", -1) }
+        guard let micUID = getString(mic, kAudioDevicePropertyDeviceUID) else { throw RecorderError.coreAudio(L("讀取麥克風", "Reading microphone"), -1) }
 
         let agg: [String: Any] = [
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
@@ -187,7 +187,7 @@ final class Recorder {
             // 不能設 TapAutoStart：開著的話瀏覽器沒出聲時整個裝置（連麥克風）都不會跑
             kAudioAggregateDeviceTapAutoStartKey: false,
         ]
-        try check(AudioHardwareCreateAggregateDevice(agg as CFDictionary, &aggID), "建立錄音裝置")
+        try check(AudioHardwareCreateAggregateDevice(agg as CFDictionary, &aggID), L("建立錄音裝置", "Creating recording device"))
 
         var rate = Float64(48000)
         a = propAddress(kAudioDevicePropertyNominalSampleRate)
@@ -200,8 +200,8 @@ final class Recorder {
 
         try check(AudioDeviceCreateIOProcIDWithBlock(&procID, aggID, nil) { [weak self] _, input, _, _, _ in
             self?.capture(input)
-        }, "建立錄音回呼")
-        try check(AudioDeviceStart(aggID, procID), "開始錄音")
+        }, L("建立錄音回呼", "Creating recording callback"))
+        try check(AudioDeviceStart(aggID, procID), L("開始錄音", "Starting recording"))
     }
 
     private func stopSession() {
@@ -247,7 +247,7 @@ final class Recorder {
         let silentFor = DispatchTime.now().uptimeNanoseconds - lastInput
         lock.unlock()
         if !stopped, silentFor > 3_000_000_000 {
-            report("收不到聲音，正在重新連接錄音裝置")
+            report(L("收不到聲音，正在重新連接錄音裝置", "No audio coming in, reconnecting the recording device"))
             DispatchQueue.main.async { self.restart() }
         }
         guard file != nil, !mic.isEmpty, let buf = AVAudioPCMBuffer(pcmFormat: sessionFormat, frameCapacity: AVAudioFrameCount(mic.count)) else { return }
@@ -273,7 +273,7 @@ final class Recorder {
             try file.write(from: buf)
             report(nil)
         } catch {
-            report("錄音寫不進檔案：\(error.localizedDescription)")
+            report(L("錄音寫不進檔案：\(error.localizedDescription)", "Couldn't write the recording to disk: \(error.localizedDescription)"))
         }
     }
 }

@@ -260,8 +260,8 @@ final class DashboardModel: ObservableObject {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = Self.importTypes
-        panel.message = "選擇要匯入的音檔或影片，匯入後會自動轉逐字稿"
-        panel.prompt = "匯入"
+        panel.message = L("選擇要匯入的音檔或影片，匯入後會自動轉逐字稿", "Choose audio or video files to import. They’ll be transcribed automatically.")
+        panel.prompt = L("匯入", "Import")
         guard panel.runModal() == .OK else { return }
         importFiles(panel.urls)
     }
@@ -369,15 +369,19 @@ extension Library.Recording {
     // 每列每次重畫都會用到，formatter 建一次就好
     private static let thisYear = formatter("M月d日 HH:mm")
     private static let otherYear = formatter("yyyy年M月d日 HH:mm")
-    private static func formatter(_ format: String) -> DateFormatter {
+    private static let thisYearEN = formatter("MMM d, HH:mm", locale: "en_US")
+    private static let otherYearEN = formatter("MMM d, yyyy, HH:mm", locale: "en_US")
+    private static func formatter(_ format: String, locale: String = "zh_Hant_TW") -> DateFormatter {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_Hant_TW")
+        f.locale = Locale(identifier: locale)
         f.dateFormat = format
         return f
     }
 
     var dateText: String {
-        (Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year) ? Self.thisYear : Self.otherYear).string(from: date)
+        let sameYear = Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year)
+        let f = Settings.english ? (sameYear ? Self.thisYearEN : Self.otherYearEN) : (sameYear ? Self.thisYear : Self.otherYear)
+        return f.string(from: date)
     }
 }
 

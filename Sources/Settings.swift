@@ -7,14 +7,71 @@ enum Settings {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .traditional: return "繁體中文"
-            case .simplified: return "簡體中文"
-            case .original: return "不轉換"
+            case .traditional: return L("繁體中文", "Traditional")
+            case .simplified: return L("簡體中文", "Simplified")
+            case .original: return L("不轉換", "Don't convert")
+            }
+        }
+    }
+
+    /// 介面語言
+    enum Language: String, CaseIterable, Identifiable {
+        case system, zh, en
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .system: return L("跟隨系統", "System")
+            case .zh: return "中文"
+            case .en: return "English"
+            }
+        }
+    }
+
+    /// 轉逐字稿的語言；auto＝whisper 聽開頭一段自己判斷
+    enum TranscriptLanguage: String, CaseIterable, Identifiable {
+        case auto, zh, en
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .auto: return L("自動偵測", "Detect automatically")
+            case .zh: return "中文"
+            case .en: return "English"
             }
         }
     }
 
     private static let defaults = UserDefaults.standard
+
+    static let languageChanged = Notification.Name("MeetRecLanguageChanged")
+
+    /// 設定視窗、主視窗用 @AppStorage("language") 讀，改了會自己重畫；選單列和選單靠 languageChanged
+    static var language: Language {
+        get { defaults.string(forKey: "language").flatMap(Language.init) ?? .system }
+        set {
+            defaults.set(newValue.rawValue, forKey: "language")
+            NotificationCenter.default.post(name: languageChanged, object: nil)
+        }
+    }
+
+    /// 跟隨系統時看 macOS 替這個 app 選的語言（系統設定 › 語言與地區 › App 可以單獨指定）
+    static var english: Bool {
+        switch language {
+        case .system: return Bundle.main.preferredLocalizations.first?.hasPrefix("en") ?? false
+        case .zh: return false
+        case .en: return true
+        }
+    }
+
+    /// 語音轉文字模型的檔名（Models.speech 其中一個）
+    static var speechModel: String {
+        get { defaults.string(forKey: "speechModel") ?? "ggml-large-v3-turbo-q5_0.bin" }
+        set { defaults.set(newValue, forKey: "speechModel") }
+    }
+
+    static var transcriptLanguage: TranscriptLanguage {
+        get { defaults.string(forKey: "transcriptLanguage").flatMap(TranscriptLanguage.init) ?? .auto }
+        set { defaults.set(newValue.rawValue, forKey: "transcriptLanguage") }
+    }
 
     /// 逐字稿的中文字體；whisper 有時繁簡混著出
     static var script: Script {
@@ -56,4 +113,9 @@ extension Settings.Script {
         guard original.count == converted.count else { return whole }
         return String(zip(original, converted).map { foreign($0) ? $1 : $0 })
     }
+}
+
+/// 介面文字：照目前的介面語言挑中文或英文
+func L(_ zh: String, _ en: String) -> String {
+    Settings.english ? en : zh
 }

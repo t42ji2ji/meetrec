@@ -86,7 +86,7 @@ final class TranscriptEditor: ObservableObject {
 
     func displayName(_ key: String) -> String {
         let n = transcript.name(key)
-        return n.isEmpty ? "未命名" : n
+        return n.isEmpty ? L("未命名", "Untitled") : n
     }
 
     // MARK: 編輯
@@ -144,7 +144,7 @@ final class TranscriptEditor: ObservableObject {
             try Library.shared.save(transcript, for: recording)
             saved = transcript
         } catch {
-            onError("逐字稿存檔失敗：\(error)")
+            onError(L("逐字稿存檔失敗：\(error)", "Couldn’t save transcript: \(error)"))
         }
     }
 
@@ -262,14 +262,14 @@ struct TranscriptView: View {
                 }
             }
         }
-        .alert("新增說話者", isPresented: Binding(get: { addingFor != nil }, set: { if !$0 { addingFor = nil } })) {
-            TextField("名稱", text: $nameText)
-            Button("取消", role: .cancel) {}
-            Button("新增") {
+        .alert(L("新增說話者", "Add Speaker"), isPresented: Binding(get: { addingFor != nil }, set: { if !$0 { addingFor = nil } })) {
+            TextField(L("名稱", "Name"), text: $nameText)
+            Button(L("取消", "Cancel"), role: .cancel) {}
+            Button(L("新增", "Add")) {
                 if let ids = addingFor { editor.assign(ids, to: editor.addSpeaker(named: nameText)) }
             }
         } message: {
-            Text("新增後這句會改成這個人說的。")
+            Text(L("新增後這句會改成這個人說的。", "This line will be reassigned to the new speaker."))
         }
     }
 
@@ -280,7 +280,7 @@ struct TranscriptView: View {
                 ForEach(editor.transcript.speakerOrder, id: \.self) { key in
                     HStack(spacing: 6) {
                         if editingSpeaker == key {
-                            TextField("名稱", text: $nameText)
+                            TextField(L("名稱", "Name"), text: $nameText)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 120)
                                 .focused($focus, equals: .speaker(key))
@@ -326,12 +326,12 @@ struct TranscriptView: View {
         let current = row.segment.speaker
         let others = editor.speakerKeys.filter { $0 != current }
         if !others.isEmpty {
-            menu.addItem(.sectionHeader(title: "這句改成"))
+            menu.addItem(.sectionHeader(title: L("這句改成", "Change This Line To")))
             for k in others {
                 menu.addItem(MenuItem(editor.displayName(k)) { editor.assign([row.id], to: k) })
             }
             if row.isHead, row.turn.count > 1 {
-                let whole = NSMenuItem(title: "整段 \(row.turn.count) 句改成", action: nil, keyEquivalent: "")
+                let whole = NSMenuItem(title: L("整段 \(row.turn.count) 句改成", "Change All \(row.turn.count) Lines To"), action: nil, keyEquivalent: "")
                 whole.submenu = NSMenu()
                 for k in others {
                     whole.submenu?.addItem(MenuItem(editor.displayName(k)) { editor.assign(row.turn, to: k) })
@@ -340,8 +340,8 @@ struct TranscriptView: View {
             }
             menu.addItem(.separator())
         }
-        menu.addItem(MenuItem("重新命名「\(editor.displayName(current))」…") { renameSpeaker(current) })
-        menu.addItem(MenuItem("新增說話者…") { nameText = ""; addingFor = [row.id] })
+        menu.addItem(MenuItem(L("重新命名「\(editor.displayName(current))」…", "Rename “\(editor.displayName(current))”…")) { renameSpeaker(current) })
+        menu.addItem(MenuItem(L("新增說話者…", "Add Speaker…")) { nameText = ""; addingFor = [row.id] })
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 }
@@ -402,7 +402,7 @@ private struct TalkTimeButton: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .pointerStyle(.link)
-        .help("看這個人每段發言，點一段跳過去")
+        .help(L("看這個人每段發言，點一段跳過去", "See each of this speaker’s turns; click one to jump to it"))
         .popover(isPresented: $showing, arrowEdge: .bottom) {
             let list = turns()
             ScrollView {
@@ -466,7 +466,7 @@ private struct LegendName: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("點一下改名")
+        .help(L("點一下改名", "Click to rename"))
     }
 }
 

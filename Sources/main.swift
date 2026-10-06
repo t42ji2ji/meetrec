@@ -201,6 +201,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         library.toggleLivePause = { [weak self] in self?.togglePause() }
         library.stopLive = { [weak self] in self?.stop() }
         library.startLive = { [weak self] in self?.start(self?.detector.current) }
+        NotificationCenter.default.addObserver(forName: Settings.languageChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateStatus() }
+        }
         recoverInterrupted()
         // 第一次用（或模型被刪了）：先到設定下載模型
         if !Models.ready { SettingsWindow.shared.show() }
@@ -222,9 +225,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global().async {
             let saved = leftovers.map(Recorder.finalize)
             DispatchQueue.main.async {
-                self.panel.show(symbol: "checkmark.circle.fill", title: "已補存上次中斷的錄音",
-                                subtitle: saved.map { $0.deletingLastPathComponent().lastPathComponent }.joined(separator: "、"),
-                                buttons: [("打開", false, { Dashboard.shared.show(select: saved.first) })])
+                self.panel.show(symbol: "checkmark.circle.fill", title: L("已補存上次中斷的錄音", "Saved the interrupted recording"),
+                                subtitle: saved.map { $0.deletingLastPathComponent().lastPathComponent }.joined(separator: L("、", ", ")),
+                                buttons: [(L("打開", "Open"), false, { Dashboard.shared.show(select: saved.first) })])
                 if Settings.autoTranscribe { saved.forEach(self.library.transcribe) }
             }
         }
@@ -233,14 +236,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func browserChanged(_ b: Browser?) {
         if recorder == nil {
             if let b, Settings.askToRecord {
-                panel.show(symbol: "waveform.circle.fill", title: "要錄下這場會議嗎？", subtitle: "\(b.name) 正在使用麥克風",
-                           buttons: [("不用", false, {}), ("錄音", true, { [weak self] in self?.start(b) })])
+                panel.show(symbol: "waveform.circle.fill", title: L("要錄下這場會議嗎？", "Record this meeting?"), subtitle: L("\(b.name) 正在使用麥克風", "\(b.name) is using the microphone"),
+                           buttons: [(L("不用", "No"), false, {}), (L("錄音", "Record"), true, { [weak self] in self?.start(b) })])
             } else {
                 panel.dismiss()
             }
         } else if b == nil {
-            panel.show(symbol: "stop.circle.fill", title: "會議好像結束了", subtitle: "瀏覽器已停止使用麥克風",
-                       buttons: [("繼續錄", false, {}), ("停止並存檔", true, { [weak self] in self?.stop() })])
+            panel.show(symbol: "stop.circle.fill", title: L("會議好像結束了", "The meeting seems to have ended"), subtitle: L("瀏覽器已停止使用麥克風", "The browser stopped using the microphone"),
+                       buttons: [(L("繼續錄", "Keep Recording"), false, {}), (L("停止並存檔", "Stop and Save"), true, { [weak self] in self?.stop() })])
         } else {
             panel.dismiss()
         }
@@ -254,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let date = df.string(from: Date())
         var url: URL?
         do {
-            url = try Recorder.newURL(in: folder, name: "\(date) \(b?.name ?? "錄音")")
+            url = try Recorder.newURL(in: folder, name: "\(date) \(b?.name ?? L("錄音", "Recording"))")
             let r = try Recorder(browser: b, url: url!)
             r.onProblem = { [weak self] message in self?.recordingProblem(message) }
             try r.start()
@@ -273,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             // 沒錄成就別留下空資料夾（裡面只有剛建的空 .aac）
             if let url { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-            panel.show(symbol: "exclamationmark.triangle.fill", title: "無法開始錄音", subtitle: "\(error)", buttons: [("好", true, {})])
+            panel.show(symbol: "exclamationmark.triangle.fill", title: L("無法開始錄音", "Couldn't start recording"), subtitle: "\(error)", buttons: [(L("好", "OK"), true, {})])
         }
         updateStatus()
     }
@@ -302,8 +305,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // 有抓到會議標題就用它命名資料夾（撞名就維持原名）
                 let url = name.flatMap { try? self.library.rename(audio: finalized, to: $0) } ?? finalized
                 self.library.recordingFile = nil
-                self.panel.show(symbol: "checkmark.circle.fill", title: "已存檔", subtitle: url.lastPathComponent,
-                                buttons: [("打開", false, { Dashboard.shared.show(select: url) })], hideAfter: 4)
+                self.panel.show(symbol: "checkmark.circle.fill", title: L("已存檔", "Saved"), subtitle: url.lastPathComponent,
+                                buttons: [(L("打開", "Open"), false, { Dashboard.shared.show(select: url) })], hideAfter: 4)
                 if Settings.autoTranscribe { self.library.transcribe(url) }
             }
         }
@@ -312,9 +315,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func recordingProblem(_ message: String?) {
         guard recorder != nil else { return }
         if let message {
-            panel.show(symbol: "exclamationmark.triangle.fill", title: "錄音出狀況", subtitle: message, buttons: [("好", true, {})])
+            panel.show(symbol: "exclamationmark.triangle.fill", title: L("錄音出狀況", "Recording problem"), subtitle: message, buttons: [(L("好", "OK"), true, {})])
         } else if problem != nil {
-            panel.show(symbol: "checkmark.circle.fill", title: "錄音已恢復", subtitle: "從剛才中斷的地方接著錄", buttons: [], hideAfter: 3)
+            panel.show(symbol: "checkmark.circle.fill", title: L("錄音已恢復", "Recording resumed"), subtitle: L("從剛才中斷的地方接著錄", "Continuing from where it stopped"), buttons: [], hideAfter: 3)
         }
         problem = message
         updateStatus()
@@ -324,10 +327,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatus()
         switch result {
         case .success:
-            panel.show(symbol: "text.bubble.fill", title: "逐字稿好了", subtitle: url.deletingPathExtension().lastPathComponent,
-                       buttons: [("打開", true, { Dashboard.shared.show(select: url) })], hideAfter: 8)
+            panel.show(symbol: "text.bubble.fill", title: L("逐字稿好了", "Transcript ready"), subtitle: url.deletingPathExtension().lastPathComponent,
+                       buttons: [(L("打開", "Open"), true, { Dashboard.shared.show(select: url) })], hideAfter: 8)
         case .failure(let error):
-            panel.show(symbol: "exclamationmark.triangle.fill", title: "逐字稿失敗", subtitle: "\(error)", buttons: [("好", true, {})])
+            panel.show(symbol: "exclamationmark.triangle.fill", title: L("逐字稿失敗", "Transcription failed"), subtitle: "\(error)", buttons: [(L("好", "OK"), true, {})])
         }
     }
 
@@ -362,29 +365,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
-        menu.addItem(MenuItem("打開 MeetRec") { Dashboard.shared.show() })
+        menu.addItem(MenuItem(L("打開 MeetRec", "Open MeetRec")) { Dashboard.shared.show() })
         menu.addItem(.separator())
         if recorder != nil {
-            menu.addItem(MenuItem(pausedAt == nil ? "暫停" : "繼續錄音") { [weak self] in self?.togglePause() })
-            menu.addItem(MenuItem("停止並存檔") { [weak self] in self?.stop() })
+            menu.addItem(MenuItem(pausedAt == nil ? L("暫停", "Pause") : L("繼續錄音", "Resume Recording")) { [weak self] in self?.togglePause() })
+            menu.addItem(MenuItem(L("停止並存檔", "Stop and Save")) { [weak self] in self?.stop() })
         } else {
             let b = detector.current
-            menu.addItem(MenuItem(b.map { "開始錄音（\($0.name)）" } ?? "開始錄音（只錄麥克風）") { [weak self] in self?.start(b) })
+            menu.addItem(MenuItem(b.map { L("開始錄音（\($0.name)）", "Start Recording (\($0.name))") } ?? L("開始錄音（只錄麥克風）", "Start Recording (Microphone Only)")) { [weak self] in self?.start(b) })
         }
         if !library.status.isEmpty {
-            let item = NSMenuItem(title: "正在轉逐字稿…", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: L("正在轉逐字稿…", "Transcribing…"), action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        menu.addItem(MenuItem("設定…") { SettingsWindow.shared.show() })
-        menu.addItem(MenuItem("關於 MeetRec") { About.show() })
-        menu.addItem(MenuItem("打開錄音資料夾") { [weak self] in
+        menu.addItem(MenuItem(L("設定…", "Settings…")) { SettingsWindow.shared.show() })
+        menu.addItem(MenuItem(L("關於 MeetRec", "About MeetRec")) { About.show() })
+        menu.addItem(MenuItem(L("打開錄音資料夾", "Open Recordings Folder")) { [weak self] in
             guard let self else { return }
             try? FileManager.default.createDirectory(at: self.folder, withIntermediateDirectories: true)
             NSWorkspace.shared.open(self.folder)
         })
-        menu.addItem(MenuItem("結束 MeetRec") { NSApp.terminate(nil) })
+        menu.addItem(MenuItem(L("結束 MeetRec", "Quit MeetRec")) { NSApp.terminate(nil) })
         statusItem.menu = menu
     }
 }

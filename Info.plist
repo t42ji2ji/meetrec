@@ -13,6 +13,7 @@
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>zh_TW</string>
+		<string>en</string>
 	</array>
 	<key>CFBundleName</key>
 	<string>MeetRec</string>

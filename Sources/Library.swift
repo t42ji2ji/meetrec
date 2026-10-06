@@ -212,7 +212,7 @@ enum LibraryError: Error, CustomStringConvertible {
     case nameTaken(String)
     var description: String {
         switch self {
-        case .nameTaken(let n): return "已經有叫「\(n)」的錄音"
+        case .nameTaken(let n): return L("已經有叫「\(n)」的錄音", "A recording named “\(n)” already exists")
         }
     }
 }

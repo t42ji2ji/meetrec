@@ -115,9 +115,9 @@ enum MediaError: Error, CustomStringConvertible {
     case noAudio, decode, unsupported
     var description: String {
         switch self {
-        case .noAudio: return "檔案裡沒有聲音"
-        case .decode: return "讀不了這個音檔"
-        case .unsupported: return "不支援這個格式"
+        case .noAudio: return L("檔案裡沒有聲音", "The file has no audio")
+        case .decode: return L("讀不了這個音檔", "Couldn't read this audio file")
+        case .unsupported: return L("不支援這個格式", "This format isn't supported")
         }
     }
 }

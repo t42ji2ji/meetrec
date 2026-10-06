@@ -45,7 +45,7 @@ struct Transcript: Codable, Equatable {
 
     private func label(_ speaker: String) -> String {
         let n = name(speaker)
-        return n.isEmpty ? "" : n + "："
+        return n.isEmpty ? "" : n + (n.allSatisfy(\.isASCII) ? ": " : "：")
     }
 
     func srt() -> String {
@@ -60,7 +60,8 @@ struct Transcript: Codable, Equatable {
         var last = "", lineStart = 0.0
         for s in segments {
             if !lines.isEmpty, s.speaker == last, s.start - lineStart < 30 {
-                lines[lines.count - 1] += "，" + s.text
+                // 英文句子用空白接，中文用逗號
+                lines[lines.count - 1] += (s.text.first?.isASCII == true ? " " : "，") + s.text
             } else {
                 lines.append("[\(Self.clock(s.start))] \(label(s.speaker))\(s.text)")
                 last = s.speaker

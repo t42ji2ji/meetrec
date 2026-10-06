@@ -4,6 +4,7 @@ import SwiftUI
 struct DashboardView: View {
     @ObservedObject var model: DashboardModel
     @State private var renameText = ""
+    @AppStorage("language") private var language = Settings.Language.system
 
     var body: some View {
         NavigationSplitView {
@@ -12,11 +13,12 @@ struct DashboardView: View {
         } detail: {
             DetailView(model: model)
         }
+        .id(language)
         .navigationTitle("MeetRec")
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Button { model.importWithPanel() } label: { Label("匯入…", systemImage: "square.and.arrow.down") }
-                    .help("匯入音檔或影片（也可以直接拖進視窗）")
+                Button { model.importWithPanel() } label: { Label(L("匯入…", "Import…"), systemImage: "square.and.arrow.down") }
+                    .help(L("匯入音檔或影片（也可以直接拖進視窗）", "Import audio or video (or drag files into the window)"))
             }
             ToolbarItem(placement: .primaryAction) { RecordButton() }
             // 放在最外層、一直都在：切換錄音時工具列不用重建
@@ -24,17 +26,17 @@ struct DashboardView: View {
                 let r = model.selectedRecording
                 let has = r.map(model.hasTranscript) ?? false
                 let busy = r.map { model.status[$0.url].map { if case .failed = $0 { false } else { true } } ?? false } ?? false
-                Button { model.retranscribing = r } label: { Label("重新轉錄", systemImage: "arrow.clockwise") }
-                    .help("重新轉逐字稿（會蓋掉手動修改）")
+                Button { model.retranscribing = r } label: { Label(L("重新轉錄", "Re-transcribe"), systemImage: "arrow.clockwise") }
+                    .help(L("重新轉逐字稿（會蓋掉手動修改）", "Re-transcribe (overwrites manual edits)"))
                     .disabled(!has || busy)
                 Menu {
-                    Button("匯出 SRT…") { if let r { model.export(r, as: .srt) } }
-                    Button("匯出 TXT…") { if let r { model.export(r, as: .txt) } }
-                } label: { Label("匯出", systemImage: "square.and.arrow.up") }
-                    .help("匯出逐字稿")
+                    Button(L("匯出 SRT…", "Export SRT…")) { if let r { model.export(r, as: .srt) } }
+                    Button(L("匯出 TXT…", "Export TXT…")) { if let r { model.export(r, as: .txt) } }
+                } label: { Label(L("匯出", "Export"), systemImage: "square.and.arrow.up") }
+                    .help(L("匯出逐字稿", "Export transcript"))
                     .disabled(!has)
-                Button { if let r { model.reveal(r) } } label: { Label("在 Finder 中顯示", systemImage: "folder") }
-                    .help("在 Finder 中顯示")
+                Button { if let r { model.reveal(r) } } label: { Label(L("在 Finder 中顯示", "Show in Finder"), systemImage: "folder") }
+                    .help(L("在 Finder 中顯示", "Show in Finder"))
                     .disabled(r == nil)
             }
         }
@@ -43,31 +45,31 @@ struct DashboardView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 6]))
                     .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                    .overlay { Label("放開就匯入並轉逐字稿", systemImage: "square.and.arrow.down").font(.title2.weight(.medium)) }
+                    .overlay { Label(L("放開就匯入並轉逐字稿", "Drop to import and transcribe"), systemImage: "square.and.arrow.down").font(.title2.weight(.medium)) }
                     .padding(8)
                     .allowsHitTesting(false)
             }
         }
-        .alert("重新命名", isPresented: present($model.renaming)) {
-            TextField("名稱", text: $renameText)
-            Button("取消", role: .cancel) {}
-            Button("好") { if let r = model.renaming { model.rename(r, to: renameText) } }
+        .alert(L("重新命名", "Rename"), isPresented: present($model.renaming)) {
+            TextField(L("名稱", "Name"), text: $renameText)
+            Button(L("取消", "Cancel"), role: .cancel) {}
+            Button(L("好", "OK")) { if let r = model.renaming { model.rename(r, to: renameText) } }
         }
         .onChange(of: model.renaming) { _, r in if let r { renameText = r.title } }
-        .alert("要把「\(model.deleting?.title ?? "")」移到垃圾桶嗎？", isPresented: present($model.deleting)) {
-            Button("取消", role: .cancel) {}
-            Button("移到垃圾桶", role: .destructive) { if let r = model.deleting { model.delete(r) } }
+        .alert(L("要把「\(model.deleting?.title ?? "")」移到垃圾桶嗎？", "Move “\(model.deleting?.title ?? "")” to the Trash?"), isPresented: present($model.deleting)) {
+            Button(L("取消", "Cancel"), role: .cancel) {}
+            Button(L("移到垃圾桶", "Move to Trash"), role: .destructive) { if let r = model.deleting { model.delete(r) } }
         } message: {
-            Text("整個資料夾（音檔、逐字稿、SRT、TXT）會一起移到垃圾桶。")
+            Text(L("整個資料夾（音檔、逐字稿、SRT、TXT）會一起移到垃圾桶。", "The whole folder (audio, transcript, SRT, TXT) will be moved to the Trash."))
         }
-        .alert("要重新轉逐字稿嗎？", isPresented: present($model.retranscribing)) {
-            Button("取消", role: .cancel) {}
-            Button("重新轉錄", role: .destructive) { if let r = model.retranscribing { model.transcribe(r) } }
+        .alert(L("要重新轉逐字稿嗎？", "Re-transcribe this recording?"), isPresented: present($model.retranscribing)) {
+            Button(L("取消", "Cancel"), role: .cancel) {}
+            Button(L("重新轉錄", "Re-transcribe"), role: .destructive) { if let r = model.retranscribing { model.transcribe(r) } }
         } message: {
-            Text("新的逐字稿會蓋掉現在的版本，包括手動改過的文字和說話者名稱。")
+            Text(L("新的逐字稿會蓋掉現在的版本，包括手動改過的文字和說話者名稱。", "The new transcript will replace the current one, including any text and speaker names you edited."))
         }
-        .alert("出了點問題", isPresented: present($model.error)) {
-            Button("好") {}
+        .alert(L("出了點問題", "Something went wrong"), isPresented: present($model.error)) {
+            Button(L("好", "OK")) {}
         } message: {
             Text(model.error ?? "")
         }
@@ -89,12 +91,12 @@ private struct SidebarView: View {
         let items = model.visibleRecordings
         List(selection: Binding(get: { model.selection }, set: { model.pick($0) })) {
             if let live = library.live {
-                Section("錄音中") {
+                Section(L("錄音中", "Recording")) {
                     LiveRow(live: live).tag(DashboardSelection.live)
                 }
             }
             if !items.isEmpty {
-                Section(model.search.isEmpty ? "錄音" : "搜尋結果") {
+                Section(model.search.isEmpty ? L("錄音", "Recordings") : L("搜尋結果", "Search Results")) {
                     ForEach(items) { r in
                         RecordingRow(recording: r, status: library.status[r.url], hasTranscript: model.hasTranscript(r), snippet: model.snippet(for: r))
                             .tag(DashboardSelection.recording(r.url))
@@ -112,11 +114,11 @@ private struct SidebarView: View {
         .overlay {
             if library.recordings.isEmpty && library.live == nil {
                 ContentUnavailableView {
-                    Label("還沒有錄音", systemImage: "waveform")
+                    Label(L("還沒有錄音", "No Recordings Yet"), systemImage: "waveform")
                 } description: {
-                    Text("瀏覽器開始用麥克風時 MeetRec 會問要不要錄。也可以把音檔或影片拖進來。")
+                    Text(L("瀏覽器開始用麥克風時 MeetRec 會問要不要錄。也可以把音檔或影片拖進來。", "MeetRec asks whether to record when your browser starts using the microphone. You can also drag audio or video files here."))
                 } actions: {
-                    Button("匯入…") { model.importWithPanel() }
+                    Button(L("匯入…", "Import…")) { model.importWithPanel() }
                 }
             } else if items.isEmpty && !model.search.isEmpty {
                 ContentUnavailableView.search(text: model.search)
@@ -131,7 +133,7 @@ private struct SearchField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSSearchField {
         let f = NSSearchField()
-        f.placeholderString = "搜尋標題或逐字稿"
+        f.placeholderString = L("搜尋標題或逐字稿", "Search titles or transcripts")
         f.sendsSearchStringImmediately = true
         f.delegate = context.coordinator
         model.focusSearch = { [weak f] in f?.window?.makeFirstResponder(f) }
@@ -167,7 +169,7 @@ private struct LiveRow: View {
                 .onAppear { blink = true }
             VStack(alignment: .leading, spacing: 2) {
                 Text(live.title).lineLimit(1)
-                Text(live.paused ? "已暫停 · \(Transcript.clock(live.elapsed))" : Transcript.clock(live.elapsed))
+                Text(live.paused ? L("已暫停 · \(Transcript.clock(live.elapsed))", "Paused · \(Transcript.clock(live.elapsed))") : Transcript.clock(live.elapsed))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
@@ -205,14 +207,14 @@ private struct RecordingRow: View {
         case .transcribing(let p):
             HStack(spacing: 4) {
                 ProgressView(value: p).frame(width: 36).controlSize(.mini)
-                Text("轉錄中 \(Int(p * 100))%")
+                Text(L("轉錄中 \(Int(p * 100))%", "Transcribing \(Int(p * 100))%"))
             }
         case .queued:
-            Text("排隊中")
+            Text(L("排隊中", "Queued"))
         case .failed:
-            Label("失敗", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Label(L("失敗", "Failed"), systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
         case nil:
-            if !hasTranscript { Text("尚未轉錄").foregroundStyle(.tertiary) }
+            if !hasTranscript { Text(L("尚未轉錄", "Not transcribed")).foregroundStyle(.tertiary) }
         }
     }
 }
@@ -225,17 +227,17 @@ private struct RecordingActions: View {
     var body: some View {
         let busy = Library.shared.status[recording.url].map { if case .failed = $0 { false } else { true } } ?? false
         let has = model.hasTranscript(recording)
-        Button("重新命名…") { model.renaming = recording }
-        Button("在 Finder 中顯示") { model.reveal(recording) }
+        Button(L("重新命名…", "Rename…")) { model.renaming = recording }
+        Button(L("在 Finder 中顯示", "Show in Finder")) { model.reveal(recording) }
         Divider()
-        Button(has ? "重新轉逐字稿…" : "轉逐字稿") {
+        Button(has ? L("重新轉逐字稿…", "Re-transcribe…") : L("轉逐字稿", "Transcribe")) {
             if has { model.retranscribing = recording } else { model.transcribe(recording) }
         }
         .disabled(busy)
-        Button("匯出 SRT…") { model.export(recording, as: .srt) }.disabled(!has)
-        Button("匯出 TXT…") { model.export(recording, as: .txt) }.disabled(!has)
+        Button(L("匯出 SRT…", "Export SRT…")) { model.export(recording, as: .srt) }.disabled(!has)
+        Button(L("匯出 TXT…", "Export TXT…")) { model.export(recording, as: .txt) }.disabled(!has)
         Divider()
-        Button("移到垃圾桶…", role: .destructive) { model.deleting = recording }
+        Button(L("移到垃圾桶…", "Move to Trash…"), role: .destructive) { model.deleting = recording }
     }
 }
 
@@ -254,10 +256,10 @@ private struct DetailView: View {
                 // 不用 .id：換錄音時沿用同一組畫面，只換內容
                 RecordingDetail(model: model, recording: r, status: model.status[r.url])
             } else {
-                ContentUnavailableView("找不到這場錄音", systemImage: "questionmark.folder", description: Text("檔案可能被移走或刪掉了。"))
+                ContentUnavailableView(L("找不到這場錄音", "Recording Not Found"), systemImage: "questionmark.folder", description: Text(L("檔案可能被移走或刪掉了。", "The files may have been moved or deleted.")))
             }
         case nil:
-            ContentUnavailableView("選一場錄音", systemImage: "waveform", description: Text("在左邊選一場錄音來播放、看逐字稿。"))
+            ContentUnavailableView(L("選一場錄音", "Select a Recording"), systemImage: "waveform", description: Text(L("在左邊選一場錄音來播放、看逐字稿。", "Choose a recording on the left to play it and read the transcript.")))
         }
     }
 }
@@ -269,13 +271,13 @@ private struct LiveDetail: View {
         if let live = library.live {
             content(live)
         } else {
-            ProgressView("正在存檔…")
+            ProgressView(L("正在存檔…", "Saving…"))
         }
     }
 
     private func content(_ live: Library.Live) -> some View {
         VStack(spacing: 18) {
-            Label(live.paused ? "已暫停" : "錄音中", systemImage: live.paused ? "pause.circle.fill" : "record.circle")
+            Label(live.paused ? L("已暫停", "Paused") : L("錄音中", "Recording"), systemImage: live.paused ? "pause.circle.fill" : "record.circle")
                 .font(.headline)
                 .foregroundStyle(live.paused ? Color.secondary : Color.red)
             Text(live.title).font(.title2).foregroundStyle(.secondary)
@@ -287,16 +289,16 @@ private struct LiveDetail: View {
             }
             HStack(spacing: 12) {
                 Button { Library.shared.toggleLivePause() } label: {
-                    Label(live.paused ? "繼續" : "暫停", systemImage: live.paused ? "play.fill" : "pause.fill").frame(minWidth: 90)
+                    Label(live.paused ? L("繼續", "Resume") : L("暫停", "Pause"), systemImage: live.paused ? "play.fill" : "pause.fill").frame(minWidth: 90)
                 }
                 Button { Library.shared.stopLive() } label: {
-                    Label("停止並存檔", systemImage: "stop.fill").frame(minWidth: 110)
+                    Label(L("停止並存檔", "Stop and Save"), systemImage: "stop.fill").frame(minWidth: 110)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.red)
             }
             .controlSize(.large)
-            Text("存檔後會自動轉逐字稿").font(.callout).foregroundStyle(.tertiary)
+            Text(L("存檔後會自動轉逐字稿", "The recording will be transcribed automatically after saving")).font(.callout).foregroundStyle(.tertiary)
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -331,19 +333,19 @@ private struct RecordingDetail: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            TextField("標題", text: $title)
+            TextField(L("標題", "Title"), text: $title)
                 .textFieldStyle(.plain)
                 .font(.title2.weight(.semibold))
                 .focused($editingTitle)
                 .onSubmit { commitTitle() }
                 .onExitCommand { title = recording.title; editingTitle = false }
                 .onChange(of: editingTitle) { _, editing in if !editing { commitTitle() } }
-                .help("點一下改名")
+                .help(L("點一下改名", "Click to rename"))
             HStack(spacing: 8) {
                 Label(recording.dateText, systemImage: "calendar")
                 Label(Transcript.clock(recording.duration), systemImage: "clock")
                 if let n = model.editor?.transcript.speakerOrder.count, n > 1 {
-                    Label("\(n) 位說話者", systemImage: "person.2")
+                    Label(L("\(n) 位說話者", "\(n) speakers"), systemImage: "person.2")
                 }
             }
             .font(.callout)
@@ -402,19 +404,19 @@ private struct RecordingDetail: View {
                     .frame(maxHeight: .infinity)
                 case .failed(let message):
                     ContentUnavailableView {
-                        Label("轉逐字稿失敗", systemImage: "exclamationmark.triangle")
+                        Label(L("轉逐字稿失敗", "Transcription Failed"), systemImage: "exclamationmark.triangle")
                     } description: {
                         Text(message)
                     } actions: {
-                        Button("重試") { model.transcribe(recording) }
+                        Button(L("重試", "Retry")) { model.transcribe(recording) }
                     }
                 case nil:
                     ContentUnavailableView {
-                        Label("還沒有逐字稿", systemImage: "text.bubble")
+                        Label(L("還沒有逐字稿", "No Transcript Yet"), systemImage: "text.bubble")
                     } description: {
-                        Text("轉好之後可以點時間跳著聽、修正文字和說話者。")
+                        Text(L("轉好之後可以點時間跳著聽、修正文字和說話者。", "Once transcribed, you can click timestamps to jump around and fix text and speakers."))
                     } actions: {
-                        Button("開始轉逐字稿") { model.transcribe(recording) }
+                        Button(L("開始轉逐字稿", "Transcribe")) { model.transcribe(recording) }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.large)
                     }
@@ -426,12 +428,12 @@ private struct RecordingDetail: View {
     @ViewBuilder private var progressBanner: some View {
         if case .transcribing(let p) = status {
             VStack(alignment: .leading, spacing: 6) {
-                Text("正在轉逐字稿… \(Int(p * 100))%").font(.callout.monospacedDigit())
+                Text(L("正在轉逐字稿… \(Int(p * 100))%", "Transcribing… \(Int(p * 100))%")).font(.callout.monospacedDigit())
                 ProgressView(value: p)
             }
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text("排隊中，等前面的轉完").font(.callout)
+                Text(L("排隊中，等前面的轉完", "Queued, waiting for earlier recordings to finish")).font(.callout)
                 ProgressView().progressViewStyle(.linear)
             }
         }
@@ -439,9 +441,9 @@ private struct RecordingDetail: View {
 
     private func failedBanner(_ message: String) -> some View {
         HStack {
-            Label("重新轉錄失敗：\(message)", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+            Label(L("重新轉錄失敗：\(message)", "Re-transcription failed: \(message)"), systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
             Spacer()
-            Button("重試") { model.transcribe(recording) }
+            Button(L("重試", "Retry")) { model.transcribe(recording) }
         }
     }
 }
@@ -471,15 +473,15 @@ private struct PlayerBar: View {
     var body: some View {
         HStack(spacing: 14) {
             Button { player.skip(-15) } label: { Image(systemName: "gobackward.15") }
-                .help("倒退 15 秒")
+                .help(L("倒退 15 秒", "Back 15 seconds"))
             Button { player.toggle() } label: {
                 Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title2)
                     .frame(width: 26)
             }
-            .help(player.isPlaying ? "暫停（空白鍵）" : "播放（空白鍵）")
+            .help(player.isPlaying ? L("暫停（空白鍵）", "Pause (Space)") : L("播放（空白鍵）", "Play (Space)"))
             Button { player.skip(15) } label: { Image(systemName: "goforward.15") }
-                .help("快轉 15 秒")
+                .help(L("快轉 15 秒", "Forward 15 seconds"))
             Text(Transcript.clock(dragging ?? clock.time))
                 .monospacedDigit()
                 .frame(minWidth: 44, alignment: .trailing)
@@ -494,7 +496,7 @@ private struct PlayerBar: View {
             Text(Transcript.clock(player.duration))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-            Picker("速度", selection: $player.rate) {
+            Picker(L("速度", "Speed"), selection: $player.rate) {
                 ForEach([Float(1), 1.25, 1.5, 2], id: \.self) { r in
                     Text(r == 1 ? "1x" : r == 2 ? "2x" : "\(r, specifier: "%g")x").tag(r)
                 }
@@ -502,7 +504,7 @@ private struct PlayerBar: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .fixedSize()
-            .help("播放速度")
+            .help(L("播放速度", "Playback speed"))
         }
         .font(.body)
         .buttonStyle(.borderless)
@@ -519,11 +521,11 @@ private struct RecordButton: View {
 
     var body: some View {
         if library.live == nil {
-            Button { library.startLive() } label: { Label("開始錄音", systemImage: "record.circle") }
-                .help("開始錄音：瀏覽器在開會就連會議聲音一起錄，否則只錄麥克風")
+            Button { library.startLive() } label: { Label(L("開始錄音", "Start Recording"), systemImage: "record.circle") }
+                .help(L("開始錄音：瀏覽器在開會就連會議聲音一起錄，否則只錄麥克風", "Start recording: captures meeting audio too if a browser meeting is active, otherwise just the microphone"))
         } else {
-            Button { library.stopLive() } label: { Label("停止並存檔", systemImage: "stop.circle.fill") }
-                .help("停止錄音並存檔")
+            Button { library.stopLive() } label: { Label(L("停止並存檔", "Stop and Save"), systemImage: "stop.circle.fill") }
+                .help(L("停止錄音並存檔", "Stop recording and save"))
                 .tint(.red)
         }
     }

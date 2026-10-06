@@ -8,32 +8,56 @@ final class Models: NSObject, ObservableObject {
     struct Model: Identifiable {
         let file: String
         let name: String
-        let purpose: String
+        let purposeZh: String, purposeEn: String
         let url: URL
         let size: Int64
         var id: String { file }
+        var purpose: String { L(purposeZh, purposeEn) }
         var path: String { Transcriber.dir + "/" + file }
     }
 
-    nonisolated static let all = [
-        Model(file: "ggml-large-v3-turbo-q5_0.bin", name: "Whisper large-v3-turbo", purpose: "語音轉文字",
-              url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin")!, size: 574_041_195),
-        Model(file: "ggml-silero-v5.1.2.bin", name: "Silero VAD", purpose: "找出有人說話的段落",
+    /// 語音轉文字可以換（Settings.speechModel）：越大越準也越慢，讓使用者照自己的電腦選。
+    /// 沒放 base：中文會整段漏掉，而且一直重試反而比 small 慢
+    nonisolated static let speech = [
+        whisper("ggml-small-q5_1.bin", "Whisper small", "比 turbo 快一倍，錯字較多", "About twice as fast as turbo, more mistakes", 190_085_487),
+        whisper("ggml-large-v3-turbo-q5_0.bin", "Whisper large-v3-turbo", "速度和準確度兼顧", "Balanced speed and accuracy", 574_041_195),
+        whisper("ggml-large-v3-q5_0.bin", "Whisper large-v3", "最準，速度約 turbo 的一半", "Most accurate, about half the speed of turbo", 1_081_140_203),
+    ]
+
+    private nonisolated static func whisper(_ file: String, _ name: String, _ zh: String, _ en: String, _ size: Int64) -> Model {
+        Model(file: file, name: name, purposeZh: zh, purposeEn: en,
+              url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/\(file)")!, size: size)
+    }
+
+    /// 不管選哪個語音模型都要的
+    nonisolated static let support = [
+        Model(file: "ggml-silero-v5.1.2.bin", name: "Silero VAD", purposeZh: "找出有人說話的段落", purposeEn: "Finds where people are talking",
               url: URL(string: "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin")!, size: 885_098),
-        Model(file: "pyannote-segmentation-3-0.onnx", name: "pyannote segmentation 3.0", purpose: "切出每個人說話的片段",
+        Model(file: "pyannote-segmentation-3-0.onnx", name: "pyannote segmentation 3.0", purposeZh: "切出每個人說話的片段", purposeEn: "Splits speech into speaker turns",
               url: URL(string: "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/main/model.onnx")!, size: 5_992_913),
-        Model(file: "3dspeaker-campplus-zh-en.onnx", name: "3D-Speaker CAM++", purpose: "分辨不同的人（中英文）",
+        Model(file: "3dspeaker-campplus-zh-en.onnx", name: "3D-Speaker CAM++", purposeZh: "分辨不同的人（中英文）", purposeEn: "Tells speakers apart (Chinese & English)",
               url: URL(string: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx")!, size: 28_281_164),
     ]
 
-    nonisolated static var totalSize: Int64 { all.reduce(0) { $0 + $1.size } }
+    nonisolated static var all: [Model] { speech + support }
+
+    /// 目前選的語音模型；設定裡的檔名不在清單上（舊版、手動改）就用預設的 turbo
+    nonisolated static var current: Model { speech.first { $0.file == Settings.speechModel } ?? speech[1] }
+
+    /// 設定裡標「建議」的：記憶體 8 GB 以下的 Mac 跑大模型會跟其他 app 搶記憶體，建議 small
+    nonisolated static var recommended: Model { ProcessInfo.processInfo.physicalMemory <= 8 << 30 ? speech[0] : speech[1] }
+
+    /// 轉逐字稿現在需要的
+    nonisolated static var required: [Model] { [current] + support }
+
+    nonisolated static var installedSize: Int64 { all.filter(installed).reduce(0) { $0 + $1.size } }
 
     /// 檔案在、大小對才算有（下載到一半的不算）
     nonisolated static func installed(_ m: Model) -> Bool {
         (try? FileManager.default.attributesOfItem(atPath: m.path)[.size] as? Int64) == m.size
     }
 
-    nonisolated static var ready: Bool { all.allSatisfy(installed) }
+    nonisolated static var ready: Bool { required.allSatisfy(installed) }
 
     /// 0...1；nil＝沒在下載
     @Published private(set) var progress: Double?
@@ -43,14 +67,22 @@ final class Models: NSObject, ObservableObject {
 
     private var task: Task<Void, Never>?
 
-    func downloadAll() {
+    /// 換語音模型：選了才下載
+    func select(_ m: Model) {
+        Settings.speechModel = m.file
+        revision += 1
+        if !Self.ready { downloadMissing() }
+    }
+
+    /// 下載目前需要、還沒有的
+    func downloadMissing() {
         guard task == nil else { return }
         error = nil
         progress = 0
         task = Task {
             do {
                 try FileManager.default.createDirectory(atPath: Transcriber.dir, withIntermediateDirectories: true)
-                let missing = Self.all.filter { !Self.installed($0) }
+                let missing = Self.required.filter { !Self.installed($0) }
                 let total = Double(missing.reduce(0) { $0 + $1.size })
                 var done: Int64 = 0
                 for m in missing {
@@ -60,7 +92,7 @@ final class Models: NSObject, ObservableObject {
                 }
             } catch is CancellationError {
             } catch {
-                self.error = "下載失敗：\(error.localizedDescription)"
+                self.error = L("下載失敗：\(error.localizedDescription)", "Download failed: \(error.localizedDescription)")
             }
             progress = nil
             task = nil
@@ -69,6 +101,11 @@ final class Models: NSObject, ObservableObject {
     }
 
     func cancel() { task?.cancel() }
+
+    func delete(_ m: Model) {
+        try? FileManager.default.removeItem(atPath: m.path)
+        revision += 1
+    }
 
     func deleteAll() {
         cancel()

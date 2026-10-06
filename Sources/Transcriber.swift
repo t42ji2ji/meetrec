@@ -12,7 +12,6 @@ enum Transcriber {
     static let whisper = helpers.appendingPathComponent("whisper-cli").path
     static let diarizer = helpers.appendingPathComponent("sherpa-diarize").path
     static let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MeetRec").path
-    static let model = dir + "/ggml-large-v3-turbo-q5_0.bin"
     static let vadModel = dir + "/ggml-silero-v5.1.2.bin"
     static let segmentationModel = dir + "/pyannote-segmentation-3-0.onnx"
     static let embeddingModel = dir + "/3dspeaker-campplus-zh-en.onnx"
@@ -47,13 +46,13 @@ enum Transcriber {
             let micDB = levels(mic.pcm)
             // 麥克風比瀏覽器小聲的句子是旁人或喇叭漏進麥克風的聲音，不是我
             let me = try recognize(mic.wav) { progress($0 * 0.3) }
-                .filter { loudness(micDB, $0) > loudness(tabDB, $0) }
+                .filter { micLouder(micDB, tabDB, $0) }
             // 跟我說的話重複的：我的聲音被對方那邊的麥克風（例如同一間的同事）收進去又傳回來
             let others = try recognize(tab.wav) { progress(0.3 + $0 * 0.6) }
                 .filter { o in !me.contains { echoes(o, of: $0) } }
-            let who = label(others, turns: try turns.wait(), prefix: "them", single: "對方")
+            let who = label(others, turns: try turns.wait(), prefix: "them", single: L("對方", "Them"))
             t = Transcript(segments: me.map { .init(start: $0.start, end: $0.end, speaker: "me", text: $0.text) } + who.segments,
-                           speakers: who.names.merging(["me": "我"]) { a, _ in a })
+                           speakers: who.names.merging(["me": L("我", "Me")]) { a, _ in a })
         } else {
             let mono = try mic ?? wav("mono", channels.count == 2 ? zip(channels[0], channels[1]).map { ($0 + $1) / 2 } : channels[0])
             let turns = diarizeInBackground(mono.wav)
@@ -70,14 +69,14 @@ enum Transcriber {
     private static func recognize(_ wav: URL, progress: @escaping (Double) -> Void) throws -> [Line] {
         let out = wav.deletingPathExtension()
         // VAD 先剪掉沒人講話的段落，不然 whisper 會在靜音裡編出「(電話響起)」之類的字
-        try run(whisper, ["-m", model, "-l", "zh", "--vad", "-vm", vadModel, "-np", "-pp", "-oj", "-of", out.path, wav.path]) { line in
+        try run(whisper, ["-m", Models.current.path, "-l", Settings.transcriptLanguage.rawValue, "--vad", "-vm", vadModel, "-np", "-pp", "-oj", "-of", out.path, wav.path]) { line in
             if let r = line.range(of: "progress ="), let p = Double(line[r.upperBound...].trimmingCharacters(in: .whitespaces).dropLast()) {
                 progress(p / 100)
             }
         }
         let json = try JSONDecoder().decode(WhisperJSON.self, from: Data(contentsOf: out.appendingPathExtension("json")))
         return json.transcription.compactMap { s in
-            // whisper 中文有時繁簡混著出，照設定統一
+            // whisper 中文有時繁簡混著出，照設定統一（英文不受影響）
             let text = Settings.script.convert(s.text).trimmingCharacters(in: .whitespaces)
             return text.isEmpty ? nil : (Double(s.offsets.from) / 1000, Double(s.offsets.to) / 1000, text)
         }
@@ -116,8 +115,13 @@ enum Transcriber {
     }
 
     /// 好記又不會跟真名搞混的暫時名字，使用者在逐字稿裡改成真名
-    private static let placeholderNames = ["海獺", "柴犬", "水豚", "企鵝", "狐狸", "貓頭鷹", "熊貓", "無尾熊", "刺蝟", "海豚",
-                                           "松鼠", "浣熊", "羊駝", "鸚鵡", "鯨魚", "兔子", "小鹿", "河馬", "長頸鹿", "樹懶"]
+    private static var placeholderNames: [String] {
+        Settings.english
+            ? ["Otter", "Shiba", "Capybara", "Penguin", "Fox", "Owl", "Panda", "Koala", "Hedgehog", "Dolphin",
+               "Squirrel", "Raccoon", "Alpaca", "Parrot", "Whale", "Bunny", "Fawn", "Hippo", "Giraffe", "Sloth"]
+            : ["海獺", "柴犬", "水豚", "企鵝", "狐狸", "貓頭鷹", "熊貓", "無尾熊", "刺蝟", "海豚",
+               "松鼠", "浣熊", "羊駝", "鸚鵡", "鯨魚", "兔子", "小鹿", "河馬", "長頸鹿", "樹懶"]
+    }
 
     /// 每句話分給重疊最多的說話者；講話總長太短的群（多半是分錯的碎片）併進前後的人。
     /// 只剩一個人就叫 single，否則每人隨機一個動物名字
@@ -146,7 +150,7 @@ enum Transcriber {
         var names: [String: String] = [:]
         let pool = placeholderNames.shuffled()
         for (i, c) in order.enumerated() {
-            names[key(c)] = order.count == 1 ? single : i < pool.count ? pool[i] : "說話者 \(i + 1)"
+            names[key(c)] = order.count == 1 ? single : i < pool.count ? pool[i] : L("說話者 \(i + 1)", "Speaker \(i + 1)")
         }
         let segments = zip(lines, cluster).map { l, c in Transcript.Segment(start: l.start, end: l.end, speaker: key(c), text: l.text) }
         return (segments, names)
@@ -167,17 +171,20 @@ enum Transcriber {
         }
     }
 
-    private static func loudness(_ db: [Double], _ l: Line) -> Double {
-        let a = min(Int(l.start * 10), db.count - 1), b = min(max(a + 1, Int(l.end * 10)), db.count)
-        guard a >= 0, a < b else { return -120 }
-        return db[a..<b].reduce(0, +) / Double(b - a)
+    /// 只比一句裡麥克風最大聲的那一半時間：whisper（英文尤其常見）會把我前後兩句接成一句、中間跨過對方講話，
+    /// 那段麥克風沒聲音、瀏覽器有聲音，整句平均會把我的話判成漏音
+    private static func micLouder(_ mic: [Double], _ tab: [Double], _ l: Line) -> Bool {
+        let a = min(Int(l.start * 10), mic.count - 1), b = min(max(a + 1, Int(l.end * 10)), mic.count)
+        guard a >= 0, a < b else { return false }
+        let loudest = (a..<b).sorted { mic[$0] > mic[$1] }.prefix(max(1, (b - a) / 2))
+        return loudest.reduce(0) { $0 + mic[$1] - tab[min($1, tab.count - 1)] } > 0
     }
 
-    /// 6 秒內、內容有六成以上一樣（最長共同子序列）就算回音；太短的（「對」「嗯」）不判斷。
+    /// 6 秒內、內容有六成以上一樣（最長共同子序列）就算回音；太短的（「對」「嗯」「yeah okay」）不判斷。
     /// 時間放寬到 6 秒：whisper 合併句子時起點會差好幾秒
     private static func echoes(_ a: Line, of b: Line) -> Bool {
         guard abs(a.start - b.start) <= 6 else { return false }
-        let x = Array(a.text.filter { $0.isLetter || $0.isNumber }), y = Array(b.text.filter { $0.isLetter || $0.isNumber })
+        let x = tokens(a.text), y = tokens(b.text)
         guard min(x.count, y.count) >= 4 else { return false }
         var dp = [Int](repeating: 0, count: y.count + 1)
         for i in 1...x.count {
@@ -189,6 +196,21 @@ enum Transcriber {
             }
         }
         return Double(dp[y.count]) >= 0.6 * Double(min(x.count, y.count))
+    }
+
+    /// 比對單位：中文一個字一個，英文一個詞一個（用字母比，兩句不相干的英文也會有六成字母對得上）
+    private static func tokens(_ text: String) -> [String] {
+        var out: [String] = [], word = ""
+        for c in text.lowercased() {
+            if c.isASCII && (c.isLetter || c.isNumber) {
+                word.append(c)
+                continue
+            }
+            if !word.isEmpty { out.append(word); word = "" }
+            if c.isLetter || c.isNumber { out.append(String(c)) }
+        }
+        if !word.isEmpty { out.append(word) }
+        return out
     }
 }
 
@@ -222,8 +244,8 @@ enum TranscribeError: Error, CustomStringConvertible {
     case modelsMissing
     var description: String {
         switch self {
-        case .tool(let tool, let status): return "\(tool) 失敗（\(status)）"
-        case .modelsMissing: return "還沒下載轉逐字稿的模型，請到設定下載"
+        case .tool(let tool, let status): return L("\(tool) 失敗（\(status)）", "\(tool) failed (\(status))")
+        case .modelsMissing: return L("還沒下載轉逐字稿的模型，請到設定下載", "The transcription models aren't downloaded yet. Download them in Settings.")
         }
     }
 }

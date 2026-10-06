@@ -53,6 +53,11 @@ final class Dashboard: NSObject, NSWindowDelegate {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.model.windowClosed() }
         }
+        NotificationCenter.default.addObserver(forName: Settings.languageChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                if NSApp.activationPolicy() == .regular { NSApp.mainMenu = self?.mainMenu() }
+            }
+        }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
             MainActor.assumeIsolated { self?.handleSpace(e) ?? false } ? nil : e
         }
@@ -92,20 +97,20 @@ final class Dashboard: NSObject, NSWindowDelegate {
             i.keyEquivalentModifierMask = mods
             return i
         }
-        let settingsItem = item("設定…", "openSettings", ",")
+        let settingsItem = item(L("設定…", "Settings…"), "openSettings", ",")
         settingsItem.target = self
-        let aboutItem = item("關於 MeetRec", "openAbout", "")
+        let aboutItem = item(L("關於 MeetRec", "About MeetRec"), "openAbout", "")
         aboutItem.target = self
-        let importItem = item("匯入…", "importFiles", "o")
+        let importItem = item(L("匯入…", "Import…"), "importFiles", "o")
         importItem.target = self
-        let findItem = item("搜尋", "find", "f")
+        let findItem = item(L("搜尋", "Find"), "find", "f")
         findItem.target = self
         // ⌘Q 只關視窗：MeetRec 平常住在選單列，錄音中按 ⌘Q 不能把錄音停掉。真的要結束用選單列的「結束 MeetRec」
-        add("MeetRec", [aboutItem, .separator(), settingsItem, .separator(), item("隱藏 MeetRec", "hide:", "h"), .separator(), item("關閉視窗", "performClose:", "q"), item("結束 MeetRec", "terminate:", "")])
-        add("檔案", [importItem, .separator(), item("關閉視窗", "performClose:", "w")])
-        add("編輯", [item("還原", "undo:", "z"), item("重做", "redo:", "z", [.command, .shift]), .separator(),
-                     item("剪下", "cut:", "x"), item("拷貝", "copy:", "c"), item("貼上", "paste:", "v"), item("全選", "selectAll:", "a"), .separator(), findItem])
-        add("視窗", [item("最小化", "performMiniaturize:", "m"), item("縮放", "performZoom:", "")])
+        add("MeetRec", [aboutItem, .separator(), settingsItem, .separator(), item(L("隱藏 MeetRec", "Hide MeetRec"), "hide:", "h"), .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "q"), item(L("結束 MeetRec", "Quit MeetRec"), "terminate:", "")])
+        add(L("檔案", "File"), [importItem, .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "w")])
+        add(L("編輯", "Edit"), [item(L("還原", "Undo"), "undo:", "z"), item(L("重做", "Redo"), "redo:", "z", [.command, .shift]), .separator(),
+                     item(L("剪下", "Cut"), "cut:", "x"), item(L("拷貝", "Copy"), "copy:", "c"), item(L("貼上", "Paste"), "paste:", "v"), item(L("全選", "Select All"), "selectAll:", "a"), .separator(), findItem])
+        add(L("視窗", "Window"), [item(L("最小化", "Minimize"), "performMiniaturize:", "m"), item(L("縮放", "Zoom"), "performZoom:", "")])
         return main
     }
 }

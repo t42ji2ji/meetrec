@@ -1,0 +1,3 @@
+"NSAppleEventsUsageDescription" = "讀取瀏覽器的會議分頁標題，用來替錄音命名";
+"NSAudioCaptureUsageDescription" = "錄下瀏覽器裡會議的聲音";
+"NSMicrophoneUsageDescription" = "錄下你在會議中的聲音";
