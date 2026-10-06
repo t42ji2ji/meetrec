@@ -14,6 +14,8 @@ struct Transcript: Codable, Equatable {
     var segments: [Segment]
     /// 說話者 key → 顯示名稱。key 不變（"me"、"them"、"them1"…、"s1"…），使用者改的是名稱；名稱空字串＝不標說話者
     var speakers: [String: String]
+    /// 說話者 key → 使用者挑的顏色（speakerPalette 的索引）；沒挑的照 key 自動配
+    var colors: [String: Int]? = nil
 
     /// 依第一次出現的順序
     var speakerOrder: [String] {

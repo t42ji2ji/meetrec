@@ -86,6 +86,18 @@ final class TranscriptEditor: ObservableObject {
         return order + transcript.speakers.keys.filter { !order.contains($0) }.sorted()
     }
 
+    func colorIndex(_ key: String) -> Int {
+        transcript.colors?[key] ?? defaultColorIndex(key)
+    }
+
+    func color(_ key: String) -> Color { speakerPalette[colorIndex(key) % speakerPalette.count] }
+
+    func setColor(_ key: String, _ index: Int) {
+        guard colorIndex(key) != index else { return }
+        transcript.colors = (transcript.colors ?? [:]).merging([key: index]) { $1 }
+        flush()
+    }
+
     func displayName(_ key: String) -> String {
         let n = transcript.name(key)
         return n.isEmpty ? L("未命名", "Untitled") : n
@@ -260,25 +272,27 @@ final class TranscriptEditor: ObservableObject {
     }
 }
 
-/// 同一個 key 永遠同一個顏色：「我」藍色，其他人照編號輪
-func speakerColor(_ key: String) -> Color {
-    if key == "me" { return .blue }
-    let palette: [Color] = [.orange, .green, .purple, .pink, .teal, .brown, .indigo, .mint, .red, .cyan]
+/// 說話者可選的顏色；順序不能改，逐字稿存的是索引
+let speakerPalette: [Color] = [.blue, .orange, .green, .purple, .pink, .teal, .brown, .indigo, .mint, .red, .cyan, .gray]
+
+/// 沒挑過顏色時：「我」藍色，其他人照編號從橘色開始輪
+func defaultColorIndex(_ key: String) -> Int {
+    if key == "me" { return 0 }
     let n = Int(key.drop { !$0.isNumber }) ?? key.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-    return palette[(n + palette.count - 1) % palette.count]
+    return 1 + (n + 9) % 10
 }
 
 struct SpeakerChip: View {
     let name: String
-    let key: String
+    let color: Color
     var body: some View {
         Text(name)
             .font(.callout.weight(.medium))
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .foregroundStyle(speakerColor(key))
-            .background(speakerColor(key).opacity(0.15), in: Capsule())
+            .foregroundStyle(color)
+            .background(color.opacity(0.15), in: Capsule())
     }
 }
 
@@ -286,7 +300,6 @@ struct SpeakerChip: View {
 struct TranscriptView: View {
     enum Field: Hashable {
         case segment(UUID)
-        case speaker(String)
         /// 編輯模式的一段，用段首那句的 id
         case turn(UUID)
     }
@@ -341,6 +354,7 @@ struct TranscriptView: View {
                         ForEach(editor.rows) { row in
                             SegmentRow(row: row, playing: editor.playing,
                                        speaker: editor.displayName(row.segment.speaker),
+                                       color: editor.color(row.segment.speaker),
                                        editing: editingID == row.id ? Binding(get: { editor.text(row.id) }, set: { editor.setText(row.id, $0) }) : nil,
                                        focus: $focus,
                                        play: { focus = nil; player.seek(row.segment.start) },
@@ -382,12 +396,6 @@ struct TranscriptView: View {
                 if editingID == id { editingID = nil }
             }
             if case .turn = old, new != old { editor.flush() }
-            if case .speaker(let key) = old, new != old {
-                if editingSpeaker == key {
-                    editor.renameSpeaker(key, to: nameText)
-                    editingSpeaker = nil
-                }
-            }
         }
         .alert(L("新增說話者", "Add Speaker"), isPresented: Binding(get: { addingFor != nil }, set: { if !$0 { addingFor = nil } })) {
             TextField(L("名稱", "Name"), text: $nameText)
@@ -407,7 +415,7 @@ struct TranscriptView: View {
                     // 編輯模式的重點是文字，說話者只用淡淡的小字標
                     Text(editor.displayName(row.segment.speaker))
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(speakerColor(row.segment.speaker).opacity(0.7))
+                        .foregroundStyle(editor.color(row.segment.speaker).opacity(0.7))
                         .onTapGesture { showMenu(for: row) }
                         .pointerStyle(.link)
                     TurnField(ids: row.turn, editor: editor, focus: $focus)
@@ -424,17 +432,11 @@ struct TranscriptView: View {
             HStack(spacing: 16) {
                 ForEach(editor.transcript.speakerOrder, id: \.self) { key in
                     HStack(spacing: 6) {
-                        if editingSpeaker == key {
-                            TextField(L("名稱", "Name"), text: $nameText)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 120)
-                                .focused($focus, equals: .speaker(key))
-                                .onSubmit { focus = nil }
-                                .onExitCommand { editingSpeaker = nil; focus = nil }
-                                .onAppear { DispatchQueue.main.async { focus = .speaker(key) } }
-                        } else {
-                            LegendName(name: editor.displayName(key), key: key) { renameSpeaker(key) }
-                        }
+                        LegendName(name: editor.displayName(key), color: editor.color(key)) { editingSpeaker = key }
+                            .popover(isPresented: Binding(get: { editingSpeaker == key }, set: { if !$0 { editingSpeaker = nil } }),
+                                     arrowEdge: .bottom) {
+                                SpeakerEditor(editor: editor, key: key)
+                            }
                         let t = editor.talk[key] ?? 0
                         TalkTimeButton(label: "\(Transcript.clock(t)) · \(Int((t / total * 100).rounded()))%",
                                        turns: { editor.turns(of: key) }) { turn in
@@ -457,11 +459,6 @@ struct TranscriptView: View {
         clickedAt = nil
         let i = tv.characterIndexForInsertion(at: tv.convert(w.convertPoint(fromScreen: p), from: nil))
         tv.setSelectedRange(NSRange(location: min(i, (tv.string as NSString).length), length: 0))
-    }
-
-    private func renameSpeaker(_ key: String) {
-        nameText = editor.transcript.name(key)
-        editingSpeaker = key
     }
 
     /// 說話者選單用 AppKit 現做：幾百列的 SwiftUI Menu 每次切換錄音都要建，太慢
@@ -490,7 +487,7 @@ struct TranscriptView: View {
             }
             menu.addItem(.separator())
         }
-        menu.addItem(MenuItem(L("重新命名「\(editor.displayName(current))」…", "Rename “\(editor.displayName(current))”…")) { renameSpeaker(current) })
+        menu.addItem(MenuItem(L("重新命名「\(editor.displayName(current))」…", "Rename “\(editor.displayName(current))”…")) { editingSpeaker = current })
         menu.addItem(MenuItem(L("新增說話者…", "Add Speaker…")) { nameText = ""; addingFor = [row.id] })
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
@@ -649,17 +646,62 @@ private struct TurnRow: View {
     }
 }
 
-/// 說話者統計上的名字：點一下就地改名
+/// 點說話者名字跳出來的小視窗：改名、挑顏色。關掉（Return、點外面）就存名字，Esc 放棄改名
+private struct SpeakerEditor: View {
+    @ObservedObject var editor: TranscriptEditor
+    let key: String
+    @State private var name = ""
+    @State private var cancelled = false
+    @FocusState private var focused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TextField(L("名稱", "Name"), text: $name, prompt: Text(L("不標說話者", "No label")))
+                .textFieldStyle(.plain)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(editor.color(key))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(editor.color(key).opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .focused($focused)
+                .onSubmit { dismiss() }
+                .onExitCommand { cancelled = true; dismiss() }
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 10), count: 6), alignment: .leading, spacing: 10) {
+                ForEach(speakerPalette.indices, id: \.self) { i in
+                    let selected = editor.colorIndex(key) == i
+                    Circle()
+                        .fill(speakerPalette[i])
+                        .frame(width: 18, height: 18)
+                        .padding(3)
+                        .overlay(Circle().strokeBorder(speakerPalette[i], lineWidth: 2).opacity(selected ? 1 : 0))
+                        .contentShape(Circle())
+                        .onTapGesture { editor.setColor(key, i) }
+                        .pointerStyle(.link)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 236)
+        .onAppear {
+            name = editor.transcript.name(key)
+            focused = true
+        }
+        .onDisappear { if !cancelled { editor.renameSpeaker(key, to: name) } }
+    }
+}
+
+/// 說話者統計上的名字：點一下改名、挑顏色
 private struct LegendName: View {
     let name: String
-    let key: String
+    let color: Color
     let rename: () -> Void
     @State private var hovering = false
 
     var body: some View {
         Button(action: rename) {
             HStack(spacing: 3) {
-                SpeakerChip(name: name, key: key)
+                SpeakerChip(name: name, color: color)
                 Image(systemName: "pencil")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -676,6 +718,7 @@ private struct SegmentRow: View {
     let row: TranscriptEditor.Row
     @ObservedObject var playing: TranscriptEditor.Playing
     let speaker: String
+    let color: Color
     /// 正在改這一句才有
     let editing: Binding<String>?
     var focus: FocusState<TranscriptView.Field?>.Binding
@@ -698,7 +741,7 @@ private struct SegmentRow: View {
                 .pointerStyle(.link)
 
             // 每段第一句顯示說話者；後面的句子滑過才出現，一樣可以單獨改
-            SpeakerChip(name: speaker, key: row.segment.speaker)
+            SpeakerChip(name: speaker, color: color)
                 .onTapGesture(perform: menu)
                 .pointerStyle(.link)
                 .frame(width: 112, alignment: .leading)
