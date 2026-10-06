@@ -482,7 +482,8 @@ extension DashboardPlayer {
     /// MeetRec 的錄音左＝我、右＝對方，戴耳機聽會一邊一個人；播放時把兩聲道混在一起兩邊都放（檔案不動）。
     /// 乘 0.707（等功率）：只在一邊的人聲只小 3 dB；兩邊相同的一般立體聲大 3 dB 也還不會破音
     nonisolated static func item(_ url: URL) -> AVPlayerItem {
-        let item = AVPlayerItem(url: url)
+        // 要精確時間：VBR 的 mp3（匯入的 podcast）不加的話 seek 是用估的，50 分鐘處會差快一秒，聲音跑在逐字稿前面
+        let item = AVPlayerItem(asset: AVURLAsset(url: url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true]))
         Task { @MainActor in
             guard let track = try? await item.asset.loadTracks(withMediaType: .audio).first, let tap = mixdownTap() else { return }
             let params = AVMutableAudioMixInputParameters(track: track)
