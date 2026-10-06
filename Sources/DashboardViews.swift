@@ -4,7 +4,6 @@ import SwiftUI
 struct DashboardView: View {
     @ObservedObject var model: DashboardModel
     @State private var renameText = ""
-    @State private var linkText = ""
     @AppStorage("language") private var language = Settings.Language.system
 
     var body: some View {
@@ -26,11 +25,8 @@ struct DashboardView: View {
         .navigationTitle("MeetRec")
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Menu {
-                    Button(L("檔案…", "Files…")) { model.importWithPanel() }
-                    Button(L("網址（YouTube、Podcast、Spotify）…", "Link (YouTube, Podcast, Spotify)…")) { model.askingLink = true }
-                } label: { Label(L("匯入", "Import"), systemImage: "square.and.arrow.down") } primaryAction: { model.importWithPanel() }
-                    .help(L("匯入音檔或影片（也可以直接拖進視窗）；箭頭可以改從網址匯入", "Import audio or video (or drag files into the window); use the arrow to import from a link"))
+                Button { model.importing = true } label: { Label(L("匯入…", "Import…"), systemImage: "square.and.arrow.down") }
+                    .help(L("匯入音檔、影片，或 YouTube、Podcast、Spotify 網址", "Import audio, video, or a YouTube, podcast or Spotify link"))
             }
             ToolbarItem(placement: .primaryAction) { RecordButton() }
             // 放在最外層、一直都在：切換錄音時工具列不用重建
@@ -82,14 +78,9 @@ struct DashboardView: View {
         } message: {
             Text(L("新的逐字稿會蓋掉現在的版本，包括手動改過的文字和說話者名稱。", "The new transcript will replace the current one, including any text and speaker names you edited."))
         }
-        .alert(L("從網址匯入", "Import from Link"), isPresented: $model.askingLink) {
-            TextField("https://", text: $linkText)
-            Button(L("取消", "Cancel"), role: .cancel) {}
-            Button(L("匯入", "Import")) { model.importLink(linkText) }
-        } message: {
-            Text(L("YouTube、Apple Podcasts 或 Spotify 的單集網址。下載完會自動轉逐字稿。", "A YouTube, Apple Podcasts or Spotify episode link. It’s transcribed automatically once downloaded."))
+        .sheet(isPresented: $model.importing) {
+            ImportSheet(chooseFiles: model.importWithPanel, dropFiles: { model.importFiles($0) }, importLink: model.importLink)
         }
-        .onChange(of: model.askingLink) { _, asking in if asking { linkText = NSPasteboard.general.string(forType: .string).flatMap { $0.hasPrefix("http") ? $0 : nil } ?? "" } }
         .alert(L("出了點問題", "Something went wrong"), isPresented: present($model.error)) {
             Button(L("好", "OK")) {}
         } message: {
@@ -145,8 +136,7 @@ private struct SidebarView: View {
                 } description: {
                     Text(L("瀏覽器開始用麥克風時 MeetRec 會問要不要錄。也可以把音檔或影片拖進來。", "MeetRec asks whether to record when your browser starts using the microphone. You can also drag audio or video files here."))
                 } actions: {
-                    Button(L("匯入…", "Import…")) { model.importWithPanel() }
-                    Button(L("從網址匯入…", "Import from Link…")) { model.askingLink = true }
+                    Button(L("匯入…", "Import…")) { model.importing = true }
                 }
             } else if items.isEmpty && !model.search.isEmpty {
                 ContentUnavailableView.search(text: model.search)

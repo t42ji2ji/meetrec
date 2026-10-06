@@ -79,8 +79,7 @@ final class Dashboard: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.accessory)
     }
 
-    @objc private func importFiles() { model.importWithPanel() }
-    @objc private func importLink() { model.askingLink = true }
+    @objc private func importFiles() { model.importing = true }
     @objc private func find() { model.focusSearch() }
     @objc private func openSettings() { SettingsWindow.shared.show() }
     @objc private func openAbout() { About.show() }
@@ -110,8 +109,6 @@ final class Dashboard: NSObject, NSWindowDelegate {
         aboutItem.target = self
         let importItem = item(L("匯入…", "Import…"), "importFiles", "o")
         importItem.target = self
-        let linkItem = item(L("從網址匯入…", "Import from Link…"), "importLink", "o", [.command, .shift])
-        linkItem.target = self
         let findItem = item(L("搜尋", "Find"), "find", "f")
         findItem.target = self
         let replaceItem = item(L("取代…", "Replace…"), "replace", "f", [.command, .option])
@@ -128,7 +125,7 @@ final class Dashboard: NSObject, NSWindowDelegate {
         [bigger, biggerEquals, smaller, actual].forEach { $0.target = self }
         // ⌘Q 只關視窗：MeetRec 平常住在選單列，錄音中按 ⌘Q 不能把錄音停掉。真的要結束用選單列的「結束 MeetRec」
         add("MeetRec", [aboutItem, .separator(), settingsItem, .separator(), item(L("隱藏 MeetRec", "Hide MeetRec"), "hide:", "h"), .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "q"), item(L("結束 MeetRec", "Quit MeetRec"), "terminate:", "")])
-        add(L("檔案", "File"), [importItem, linkItem, .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "w")])
+        add(L("檔案", "File"), [importItem, .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "w")])
         add(L("編輯", "Edit"), [item(L("還原", "Undo"), "undo:", "z"), item(L("重做", "Redo"), "redo:", "z", [.command, .shift]), .separator(),
                      item(L("剪下", "Cut"), "cut:", "x"), item(L("拷貝", "Copy"), "copy:", "c"), item(L("貼上", "Paste"), "paste:", "v"), item(L("全選", "Select All"), "selectAll:", "a"), .separator(), findItem, replaceItem])
         add(L("顯示方式", "View"), [bigger, biggerEquals, smaller, actual])

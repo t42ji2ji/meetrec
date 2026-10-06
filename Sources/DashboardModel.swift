@@ -32,8 +32,8 @@ final class DashboardModel: ObservableObject {
     @Published var deleting: Library.Recording?
     @Published var retranscribing: Library.Recording?
     @Published var error: String?
-    /// 「從網址匯入」的輸入框
-    @Published var askingLink = false
+    /// 匯入視窗（拖檔案、選檔案、貼網址）
+    @Published var importing = false
     /// 正在從網址下載的；progress nil＝還沒開始（下載 yt-dlp、找集數）
     struct LinkDownload: Identifiable {
         let id = UUID()
