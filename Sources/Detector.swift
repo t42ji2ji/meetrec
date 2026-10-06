@@ -18,6 +18,8 @@ let browsers = [
     Browser(bundlePrefix: "com.brave.Browser", appID: "com.brave.Browser", name: "Brave"),
     Browser(bundlePrefix: "com.apple.WebKit.GPU", appID: "com.apple.Safari", name: "Safari", tabTitle: "name"),
     Browser(bundlePrefix: "org.mozilla", appID: "org.mozilla.firefox", name: "Firefox", tabTitle: nil),
+    // 不是瀏覽器，但一樣是 Chromium（Electron）：huddle 的收音、出聲在 Slack Helper；沒有分頁可讀
+    Browser(bundlePrefix: "com.tinyspeck.slackmacgap", appID: "com.tinyspeck.slackmacgap", name: "Slack", tabTitle: nil),
 ]
 
 extension Browser {
