@@ -32,6 +32,15 @@ final class DashboardModel: ObservableObject {
     @Published var deleting: Library.Recording?
     @Published var retranscribing: Library.Recording?
     @Published var error: String?
+    /// 「從網址匯入」的輸入框
+    @Published var askingLink = false
+    /// 正在從網址下載的；progress nil＝還沒開始（下載 yt-dlp、找集數）
+    struct LinkDownload: Identifiable {
+        let id = UUID()
+        let link: String
+        var progress: Double?
+    }
+    @Published private(set) var linkDownloads: [LinkDownload] = []
     /// 檔案拖到視窗上方
     @Published var dropTargeted = false
     /// ⌘F：把焦點移到搜尋框（搜尋框建立時設定）
@@ -327,6 +336,39 @@ final class DashboardModel: ObservableObject {
         awaitingNewFrom = Set(library.recordings.map(\.url))
         library.importFiles(ok)
         return true
+    }
+
+    /// YouTube、Podcast、Spotify 網址：下載完照一般匯入轉逐字稿
+    func importLink(_ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let link = URL(string: text), link.scheme?.hasPrefix("http") == true, link.host != nil else {
+            error = L("這不是網址：\(text)", "That’s not a link: \(text)")
+            return
+        }
+        let job = LinkDownload(link: text)
+        linkDownloads.append(job)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("MeetRec-\(job.id)")
+        DispatchQueue.global().async {
+            let result = Result {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                return try Online.download(link, into: dir) { p in
+                    DispatchQueue.main.async {
+                        if let i = self.linkDownloads.firstIndex(where: { $0.id == job.id }) { self.linkDownloads[i].progress = p }
+                    }
+                }
+            }
+            DispatchQueue.main.async {
+                self.linkDownloads.removeAll { $0.id == job.id }
+                switch result {
+                case .success(let file):
+                    self.awaitingNewFrom = Set(self.library.recordings.map(\.url))
+                    self.library.importFiles([file], moving: true)
+                case .failure(let e):
+                    try? FileManager.default.removeItem(at: dir)
+                    self.error = "\(e)"
+                }
+            }
+        }
     }
 }
 

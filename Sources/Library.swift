@@ -142,8 +142,9 @@ final class Library: ObservableObject {
         }
     }
 
-    /// 複製進錄音資料夾（自己一個資料夾）後轉逐字稿；影片之類 AVFoundation 能讀但不是純音檔的，抽出聲音轉成 m4a
-    func importFiles(_ urls: [URL]) {
+    /// 複製進錄音資料夾（自己一個資料夾）後轉逐字稿；影片之類 AVFoundation 能讀但不是純音檔的，抽出聲音轉成 m4a。
+    /// moving：來源是暫存檔（網址下載的），搬過去或轉完就刪
+    func importFiles(_ urls: [URL], moving: Bool = false) {
         let root = folder
         for src in urls {
             DispatchQueue.global().async {
@@ -152,10 +153,13 @@ final class Library: ObservableObject {
                 do {
                     let dest = try Recorder.newURL(in: root, name: src.deletingPathExtension().lastPathComponent)
                         .deletingPathExtension().appendingPathExtension(playable ? ext : "m4a")
-                    if playable {
+                    if playable && moving {
+                        try FileManager.default.moveItem(at: src, to: dest)
+                    } else if playable {
                         try FileManager.default.copyItem(at: src, to: dest)
                     } else {
                         try Media.convertToM4A(src, to: dest)
+                        if moving { try? FileManager.default.removeItem(at: src) }
                     }
                     DispatchQueue.main.async {
                         self.reload()
