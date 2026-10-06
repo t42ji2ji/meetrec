@@ -6,15 +6,15 @@ import Foundation
 enum Online {
     static let ytdlp = Transcriber.dir + "/yt-dlp"
 
-    /// 下載到 dir，回傳音檔位置。在背景執行緒呼叫；progress 0...1
-    static func download(_ link: URL, into dir: URL, progress: @escaping (Double) -> Void) throws -> URL {
+    /// 下載到 dir，回傳音檔位置。在背景執行緒呼叫；title 在開始下載前拿到，progress 0...1
+    static func download(_ link: URL, into dir: URL, title: @escaping (String) -> Void, progress: @escaping (Double) -> Void) throws -> URL {
         try installYtdlp()
         let target = link.host?.hasSuffix("spotify.com") == true ? try applePodcastsURL(forSpotify: link) : link
         do {
-            return try run(target, into: dir, progress: progress)
+            return try run(target, into: dir, title: title, progress: progress)
         } catch {
             _ = try? exec(["-U"])
-            return try run(target, into: dir, progress: progress)
+            return try run(target, into: dir, title: title, progress: progress)
         }
     }
 
@@ -30,13 +30,15 @@ enum Online {
     }
 
     /// AVFoundation 讀不了 webm／opus，只挑 m4a、mp3，再不行拿 mp4 影片（匯入時會抽出聲音）
-    private static func run(_ link: URL, into dir: URL, progress: @escaping (Double) -> Void) throws -> URL {
+    private static func run(_ link: URL, into dir: URL, title: @escaping (String) -> Void, progress: @escaping (Double) -> Void) throws -> URL {
         var last = ""
         let (status, errors) = try exec(["--no-playlist", "-f", "bestaudio[ext=m4a]/bestaudio[ext=mp3]/best[ext=mp4]",
                             "--newline", "--progress", "--progress-template", "download:%(progress.downloaded_bytes)s/%(progress.total_bytes,progress.total_bytes_estimate)s",
-                            "--print", "after_move:filepath", "-o", dir.path + "/%(title).150B.%(ext)s", link.absoluteString]) { line in
+                            "--print", "before_dl:title\t%(title)s", "--print", "after_move:filepath", "-o", dir.path + "/%(title).150B.%(ext)s", link.absoluteString]) { line in
             let parts = line.split(separator: "/")
-            if parts.count == 2, let done = Double(parts[0]), let total = Double(parts[1]), total > 0 {
+            if line.hasPrefix("title\t") {
+                title(String(line.dropFirst(6)))
+            } else if parts.count == 2, let done = Double(parts[0]), let total = Double(parts[1]), total > 0 {
                 progress(min(done / total, 1))
             } else if !line.isEmpty {
                 last = line

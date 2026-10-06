@@ -38,6 +38,8 @@ final class DashboardModel: ObservableObject {
     struct LinkDownload: Identifiable {
         let id = UUID()
         let link: String
+        /// yt-dlp 開始下載前才知道
+        var title: String?
         var progress: Double?
     }
     @Published private(set) var linkDownloads: [LinkDownload] = []
@@ -351,11 +353,15 @@ final class DashboardModel: ObservableObject {
         DispatchQueue.global().async {
             let result = Result {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                return try Online.download(link, into: dir) { p in
+                return try Online.download(link, into: dir, title: { t in
+                    DispatchQueue.main.async {
+                        if let i = self.linkDownloads.firstIndex(where: { $0.id == job.id }) { self.linkDownloads[i].title = t }
+                    }
+                }, progress: { p in
                     DispatchQueue.main.async {
                         if let i = self.linkDownloads.firstIndex(where: { $0.id == job.id }) { self.linkDownloads[i].progress = p }
                     }
-                }
+                })
             }
             DispatchQueue.main.async {
                 self.linkDownloads.removeAll { $0.id == job.id }

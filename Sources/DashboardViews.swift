@@ -201,7 +201,7 @@ private struct DownloadRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(download.link).lineLimit(1).truncationMode(.middle).help(download.link)
+            Text(download.title ?? download.link).lineLimit(1).truncationMode(.middle).help(download.link)
             HStack(spacing: 4) {
                 if let p = download.progress {
                     ProgressView(value: p).frame(width: 36).controlSize(.mini)
