@@ -80,11 +80,16 @@ final class Dashboard: NSObject, NSWindowDelegate {
     }
 
     @objc private func importFiles() { model.importing = true }
-    @objc private func find() { model.focusSearch() }
+    /// 開著逐字稿就是在逐字稿裡找，不然找錄音
+    @objc private func find() {
+        guard let editor = model.editor else { return model.focusSearch() }
+        editor.replacing = true
+        editor.findRequest += 1
+    }
+    @objc private func searchRecordings() { model.focusSearch() }
     @objc private func openSettings() { SettingsWindow.shared.show() }
     @objc private func openAbout() { About.show() }
     @objc private func toggleChat() { model.toggleChat() }
-    @objc private func replace() { model.editor?.replacing = true }
     @objc private func biggerText() { Settings.transcriptFontSize += 1 }
     @objc private func smallerText() { Settings.transcriptFontSize -= 1 }
     @objc private func actualSizeText() { Settings.transcriptFontSize = Settings.defaultFontSize }
@@ -109,10 +114,10 @@ final class Dashboard: NSObject, NSWindowDelegate {
         aboutItem.target = self
         let importItem = item(L("匯入…", "Import…"), "importFiles", "o")
         importItem.target = self
-        let findItem = item(L("搜尋", "Find"), "find", "f")
+        let findItem = item(L("尋找並取代…", "Find and Replace…"), "find", "f")
         findItem.target = self
-        let replaceItem = item(L("取代…", "Replace…"), "replace", "f", [.command, .option])
-        replaceItem.target = self
+        let searchItem = item(L("搜尋錄音", "Search Recordings"), "searchRecordings", "f", [.command, .option])
+        searchItem.target = self
         let chatItem = item(L("AI 對話", "AI Chat"), "toggleChat", "e")
         chatItem.target = self
         let bigger = item(L("放大", "Bigger"), "biggerText", "+")
@@ -127,7 +132,7 @@ final class Dashboard: NSObject, NSWindowDelegate {
         add("MeetRec", [aboutItem, .separator(), settingsItem, .separator(), item(L("隱藏 MeetRec", "Hide MeetRec"), "hide:", "h"), .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "q"), item(L("結束 MeetRec", "Quit MeetRec"), "terminate:", "")])
         add(L("檔案", "File"), [importItem, .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "w")])
         add(L("編輯", "Edit"), [item(L("還原", "Undo"), "undo:", "z"), item(L("重做", "Redo"), "redo:", "z", [.command, .shift]), .separator(),
-                     item(L("剪下", "Cut"), "cut:", "x"), item(L("拷貝", "Copy"), "copy:", "c"), item(L("貼上", "Paste"), "paste:", "v"), item(L("全選", "Select All"), "selectAll:", "a"), .separator(), findItem, replaceItem])
+                     item(L("剪下", "Cut"), "cut:", "x"), item(L("拷貝", "Copy"), "copy:", "c"), item(L("貼上", "Paste"), "paste:", "v"), item(L("全選", "Select All"), "selectAll:", "a"), .separator(), findItem, searchItem])
         add(L("顯示方式", "View"), [bigger, biggerEquals, smaller, actual])
         add(L("視窗", "Window"), [item(L("最小化", "Minimize"), "performMiniaturize:", "m"), item(L("縮放", "Zoom"), "performZoom:", ""), .separator(), chatItem])
         return main

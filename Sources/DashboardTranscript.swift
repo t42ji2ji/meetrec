@@ -22,6 +22,8 @@ final class TranscriptEditor: ObservableObject {
     let playing = Playing()
     /// ⌥⌘F 的取代列
     @Published var replacing = false
+    /// ⌘F 時換成新值，讓已經打開的尋找框重新拿到焦點
+    @Published var findRequest = 0
     @Published private(set) var transcript: Transcript
     /// transcript 變動時算一次，畫面每次重畫直接用
     @Published private(set) var rows: [Row] = []
@@ -339,7 +341,7 @@ struct TranscriptView: View {
                 .fixedSize()
                 Button { editor.replacing.toggle() } label: { Image(systemName: "text.magnifyingglass") }
                     .buttonStyle(.borderless)
-                    .help(L("尋找並取代（⌥⌘F）", "Find and Replace (⌥⌘F)"))
+                    .help(L("尋找並取代（⌘F）", "Find and Replace (⌘F)"))
                     .padding(.leading, 10)
                     .padding(.trailing, 20)
             }
@@ -533,7 +535,7 @@ final class CaretPlacer {
     }
 }
 
-/// ⌥⌘F：整份逐字稿一次取代
+/// ⌘F：整份逐字稿一次取代
 private struct ReplaceBar: View {
     @ObservedObject var editor: TranscriptEditor
     @State private var find = ""
@@ -564,6 +566,7 @@ private struct ReplaceBar: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
         .onAppear { findFocused = true }
+        .onChange(of: editor.findRequest) { findFocused = true }
     }
 }
 
