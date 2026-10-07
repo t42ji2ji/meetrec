@@ -300,9 +300,9 @@ final class DashboardModel: ObservableObject {
     }
 
     /// 送出問題；第一句會附上逐字稿（含還沒存檔的修改）
-    func ask(_ question: String, in chat: AssistantChat, about r: Library.Recording, model: String?) {
+    func ask(_ question: String, images: [Data], in chat: AssistantChat, about r: Library.Recording, model: String?) {
         guard let found = assistants, let tool = found.tools[chat.kind] else { return }
-        chat.send(question, transcript: { [weak self] in
+        chat.send(question, images: images, transcript: { [weak self] in
             guard let self else { return nil }
             let t = editor?.recording.url == r.url ? editor?.transcript : transcript(for: r.url)
             return t.map { "\(r.title)（\(r.dateText)）\n\n" + $0.txt() }

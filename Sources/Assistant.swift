@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// 本機裝的 AI 命令列工具（Claude Code、Codex），拿來跟逐字稿對話。用使用者自己的登入，MeetRec 不碰金鑰
 enum AssistantKind: String, CaseIterable, Identifiable {
@@ -80,6 +80,8 @@ final class AssistantChat: ObservableObject {
         let id = UUID()
         let role: Role
         var text: String
+        /// 附的圖，已轉成 JPEG
+        var images: [Data] = []
     }
 
     let kind: AssistantKind
@@ -87,30 +89,48 @@ final class AssistantChat: ObservableObject {
     @Published private(set) var running = false
     private var session: String?
     private var process: Process?
+    /// 給 codex 的暫存圖檔，回完就刪
+    private var imageFiles: [URL] = []
 
     init(kind: AssistantKind) { self.kind = kind }
 
     private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編。"
 
-    func send(_ question: String, transcript: () -> String?, model: String?, tool: URL, path: String, folder: URL) {
+    func send(_ question: String, images: [Data], transcript: () -> String?, model: String?, tool: URL, path: String, folder: URL) {
         guard !running else { return }
         var prompt = question
         if session == nil {
             guard let t = transcript() else { return }
             prompt = (kind == .codex ? Self.instructions + "\n\n" : "") + "<transcript>\n\(t)</transcript>\n\n\(question)"
         }
-        messages.append(Message(role: .user, text: question))
+        messages.append(Message(role: .user, text: question, images: images))
 
         var args: [String]
+        var input = Data(prompt.utf8)
         switch kind {
         case .claude:
-            args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+            // 圖片要用 JSON 輸入才能跟文字一起送
+            args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
                     "--tools", "", "--strict-mcp-config", "--system-prompt", Self.instructions]
             if let session { args += ["--resume", session] }
             if let model { args += ["--model", model] }
+            var content: [[String: Any]] = images.map {
+                ["type": "image", "source": ["type": "base64", "media_type": "image/jpeg", "data": $0.base64EncodedString()]]
+            }
+            if !prompt.isEmpty { content.append(["type": "text", "text": prompt]) }
+            let line: [String: Any] = ["type": "user", "message": ["role": "user", "content": content]]
+            input = ((try? JSONSerialization.data(withJSONObject: line)) ?? Data()) + Data("\n".utf8)
         case .codex:
             args = ["exec"] + (session.map { ["resume", $0] } ?? ["-s", "read-only"]) + ["--json", "--skip-git-repo-check"]
             if let model { args += ["-m", model] }
+            // codex 只吃圖檔路徑，先寫到暫存資料夾
+            for data in images {
+                let file = FileManager.default.temporaryDirectory.appendingPathComponent("MeetRec-\(UUID().uuidString).jpg")
+                if (try? data.write(to: file)) != nil {
+                    imageFiles.append(file)
+                    args.append("--image=\(file.path)")
+                }
+            }
             args.append("-")
         }
         let p = Process()
@@ -120,8 +140,8 @@ final class AssistantChat: ObservableObject {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = path
         p.environment = env
-        let input = Pipe(), out = Pipe(), err = Pipe()
-        p.standardInput = input
+        let stdin = Pipe(), out = Pipe(), err = Pipe()
+        p.standardInput = stdin
         p.standardOutput = out
         p.standardError = err
 
@@ -154,14 +174,30 @@ final class AssistantChat: ObservableObject {
         }
         do {
             try p.run()
-            input.fileHandleForWriting.write(Data(prompt.utf8))
-            try? input.fileHandleForWriting.close()
+            stdin.fileHandleForWriting.write(input)
+            try? stdin.fileHandleForWriting.close()
         } catch {
             finished(reply: reply.id, ok: false, stderr: "\(error.localizedDescription)")
         }
     }
 
     func stop() { process?.terminate() }
+
+    /// 拖進來或選的圖：縮到長邊 1568（Claude 建議的上限，再大只是多花 token），轉成 JPEG
+    nonisolated static func jpeg(_ image: NSImage) -> Data? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let scale = min(1, 1568 / CGFloat(max(cg.width, cg.height)))
+        let w = Int(CGFloat(cg.width) * scale), h = Int(CGFloat(cg.height) * scale)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        // 透明的地方填白，不然 JPEG 會變黑
+        ctx.setFillColor(.white)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let out = ctx.makeImage() else { return nil }
+        return NSBitmapImageRep(cgImage: out).representation(using: .jpeg, properties: [.compressionFactor: 0.85])
+    }
 
     private func handle(_ line: Data, reply: UUID) {
         guard let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let type = o["type"] as? String else { return }
@@ -201,6 +237,8 @@ final class AssistantChat: ObservableObject {
     private func finished(reply: UUID, ok: Bool, stderr: String) {
         running = false
         process = nil
+        imageFiles.forEach { try? FileManager.default.removeItem(at: $0) }
+        imageFiles = []
         guard let i = messages.firstIndex(where: { $0.id == reply }), messages[i].role == .assistant else { return }
         if messages[i].text.isEmpty {
             if ok {

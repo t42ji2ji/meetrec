@@ -597,7 +597,7 @@ private struct AssistantPanel: View {
             let chat = model.chat(for: r, kind: kind)
             let modelID = kind == .claude ? $claudeModel : $codexModel
             AssistantChatView(chat: chat, kinds: kinds, kind: $preferred, modelID: modelID,
-                              send: { model.ask($0, in: chat, about: r, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue) },
+                              send: { model.ask($0, images: $1, in: chat, about: r, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue) },
                               reset: { model.resetChat(for: r, kind: kind) })
                 .id(ObjectIdentifier(chat))
         } else {
@@ -611,9 +611,12 @@ private struct AssistantChatView: View {
     let kinds: [AssistantKind]
     @Binding var kind: AssistantKind
     @Binding var modelID: String
-    let send: (String) -> Void
+    let send: (String, [Data]) -> Void
     let reset: () -> Void
     @State private var draft = ""
+    /// 還沒送出的圖
+    @State private var images: [Data] = []
+    @State private var dropping = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -662,55 +665,127 @@ private struct AssistantChatView: View {
                     ContentUnavailableView(L("問問這場會議", "Ask About This Meeting"), systemImage: "bubble.left.and.text.bubble.right")
                 }
             }
-            HStack(alignment: .bottom, spacing: 6) {
-                TextField(L("問點什麼…", "Ask something…"), text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...8)
-                    .focused($focused)
-                    .onSubmit(submit)
-                    .padding(.vertical, 3)
-                if chat.running {
-                    Button { chat.stop() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 20)).foregroundStyle(.secondary) }
-                        .help(L("停止", "Stop"))
-                } else {
-                    let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    Button(action: submit) {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 20))
-                            .foregroundStyle(empty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
+            VStack(alignment: .leading, spacing: 6) {
+                if !images.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(Array(images.enumerated()), id: \.offset) { i, data in
+                                Thumbnail(data: data, size: 48)
+                                    .overlay(alignment: .topTrailing) {
+                                        Button { images.remove(at: i) } label: {
+                                            Image(systemName: "xmark.circle.fill").symbolRenderingMode(.palette)
+                                                .foregroundStyle(.white, .black.opacity(0.6))
+                                        }
+                                        .padding(2)
+                                        .help(L("移除", "Remove"))
+                                    }
+                            }
+                        }
+                        .padding(.top, 4)
                     }
-                    .disabled(empty)
-                    .help(L("送出（Return）", "Send (Return)"))
+                }
+                HStack(alignment: .bottom, spacing: 6) {
+                    Button(action: pickImages) { Image(systemName: "photo.badge.plus").font(.system(size: 15)).foregroundStyle(.secondary) }
+                        .help(L("加入圖片（也可以直接拖進來）", "Add Images (or drag them in)"))
+                        .padding(.bottom, 3)
+                    TextField(L("問點什麼…", "Ask something…"), text: $draft, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .lineLimit(1...8)
+                        .focused($focused)
+                        .onSubmit(submit)
+                        .padding(.vertical, 3)
+                    if chat.running {
+                        Button { chat.stop() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 20)).foregroundStyle(.secondary) }
+                            .help(L("停止", "Stop"))
+                    } else {
+                        let empty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty
+                        Button(action: submit) {
+                            Image(systemName: "arrow.up.circle.fill").font(.system(size: 20))
+                                .foregroundStyle(empty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
+                        }
+                        .disabled(empty)
+                        .help(L("送出（Return）", "Send (Return)"))
+                    }
                 }
             }
             .buttonStyle(.borderless)
-            .padding(.leading, 12)
+            .padding(.leading, 8)
             .padding(.trailing, 5)
             .padding(.vertical, 5)
             .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator))
             .padding(12)
         }
+        .overlay {
+            if dropping {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [.fileURL, .image], isTargeted: $dropping, perform: drop)
         .onAppear { focused = true }
     }
 
     private func submit() {
         let q = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty, !chat.running else { return }
+        guard !q.isEmpty || !images.isEmpty, !chat.running else { return }
         draft = ""
-        send(q)
+        send(q, images)
+        images = []
+    }
+
+    private func pickImages() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.image]
+        guard panel.runModal() == .OK else { return }
+        images += panel.urls.compactMap { NSImage(contentsOf: $0).flatMap(AssistantChat.jpeg) }
+    }
+
+    /// Finder 拖來的是檔案，瀏覽器或預覽程式拖來的可能是圖片本身
+    private func drop(_ providers: [NSItemProvider]) -> Bool {
+        var accepted = false
+        for p in providers {
+            if p.canLoadObject(ofClass: URL.self) {
+                accepted = true
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url, let data = NSImage(contentsOf: url).flatMap(AssistantChat.jpeg) else { return }
+                    DispatchQueue.main.async { images.append(data) }
+                }
+            } else if p.canLoadObject(ofClass: NSImage.self) {
+                accepted = true
+                _ = p.loadObject(ofClass: NSImage.self) { image, _ in
+                    guard let data = (image as? NSImage).flatMap(AssistantChat.jpeg) else { return }
+                    DispatchQueue.main.async { images.append(data) }
+                }
+            }
+        }
+        return accepted
     }
 
     @ViewBuilder private func message(_ m: AssistantChat.Message) -> some View {
         switch m.role {
         case .user:
-            Text(m.text)
-                .textSelection(.enabled)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .padding(.leading, 40)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            VStack(alignment: .trailing, spacing: 4) {
+                if !m.images.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(Array(m.images.enumerated()), id: \.offset) { Thumbnail(data: $1, size: 72) }
+                    }
+                }
+                if !m.text.isEmpty {
+                    Text(m.text)
+                        .textSelection(.enabled)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+            }
+            .padding(.leading, 40)
+            .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
             Group {
                 if m.text.isEmpty {
@@ -768,6 +843,21 @@ private struct AssistantMarks: View {
 extension AssistantKind {
     var mark: NSImage {
         NSImage(contentsOf: Bundle.main.resourceURL!.appendingPathComponent("icons/\(rawValue).svg")) ?? NSImage()
+    }
+}
+
+/// 對話裡的圖片縮圖，裁成正方形
+private struct Thumbnail: View {
+    let data: Data
+    let size: CGFloat
+
+    var body: some View {
+        Image(nsImage: NSImage(data: data) ?? NSImage())
+            .resizable()
+            .scaledToFill()
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.separator))
     }
 }
 
