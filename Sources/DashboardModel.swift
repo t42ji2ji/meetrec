@@ -284,17 +284,17 @@ final class DashboardModel: ObservableObject {
         if chatOpen { detectAssistants() }
     }
 
-    /// 每場錄音、每種工具各一段對話，切走再切回來還在
+    /// 每場錄音、每種工具各一段對話，切走再切回來、重開 app 都還在
     func chat(for r: Library.Recording, kind: AssistantKind) -> AssistantChat {
         let key = "\(kind.rawValue)|\(r.url.path)"
         if let c = chats[key] { return c }
-        let c = AssistantChat(kind: kind)
+        let c = AssistantChat(kind: kind, file: AssistantChat.file(in: r.folder, kind: kind))
         chats[key] = c
         return c
     }
 
     func resetChat(for r: Library.Recording, kind: AssistantKind) {
-        chats["\(kind.rawValue)|\(r.url.path)"]?.stop()
+        chat(for: r, kind: kind).discard()
         chats["\(kind.rawValue)|\(r.url.path)"] = nil
         objectWillChange.send()
     }
@@ -306,7 +306,7 @@ final class DashboardModel: ObservableObject {
             guard let self else { return nil }
             let t = editor?.recording.url == r.url ? editor?.transcript : transcript(for: r.url)
             return t.map { "\(r.title)（\(r.dateText)）\n\n" + $0.txt() }
-        }, model: model, tool: tool, path: found.path, folder: r.folder)
+        }, model: model, tool: tool, path: found.path)
     }
 
     static let importTypes: [UTType] = [.audio, .movie]

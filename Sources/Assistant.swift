@@ -72,19 +72,27 @@ enum AssistantCLI {
     }
 }
 
-/// 一場錄音的 AI 對話。第一句話連同逐字稿一起送出，之後接著同一個 session 問
+/// 一場錄音的 AI 對話。第一句話連同逐字稿一起送出，之後接著同一個 session 問。
+/// 每次回完存進錄音資料夾，關掉 app 再開還在，按「新對話」才清掉
 @MainActor
 final class AssistantChat: ObservableObject {
-    struct Message: Identifiable {
-        enum Role { case user, assistant, error }
-        let id = UUID()
+    struct Message: Identifiable, Codable {
+        enum Role: String, Codable { case user, assistant, error }
+        var id = UUID()
         let role: Role
         var text: String
         /// 附的圖，已轉成 JPEG
         var images: [Data] = []
+        private enum CodingKeys: CodingKey { case role, text, images }
+    }
+
+    private struct Saved: Codable {
+        var session: String?
+        var messages: [Message]
     }
 
     let kind: AssistantKind
+    private let file: URL
     @Published private(set) var messages: [Message] = []
     @Published private(set) var running = false
     private var session: String?
@@ -92,11 +100,32 @@ final class AssistantChat: ObservableObject {
     /// 給 codex 的暫存圖檔，回完就刪
     private var imageFiles: [URL] = []
 
-    init(kind: AssistantKind) { self.kind = kind }
+    init(kind: AssistantKind, file: URL) {
+        self.kind = kind
+        self.file = file
+        if let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
+            session = saved.session
+            messages = saved.messages
+        }
+    }
+
+    /// 錄音資料夾裡每種工具一個隱藏檔，改名、刪除時跟著資料夾走
+    static func file(in folder: URL, kind: AssistantKind) -> URL {
+        folder.appendingPathComponent(".chat-\(kind.rawValue).json")
+    }
+
+    /// claude 只能在開始對話的那個目錄接回 session，錄音資料夾改名就接不回來，所以固定用同一個目錄
+    static let workingDirectory = URL(fileURLWithPath: Transcriber.dir)
+
+    /// 開新對話：停掉、刪掉存檔
+    func discard() {
+        stop()
+        try? FileManager.default.removeItem(at: file)
+    }
 
     private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編。"
 
-    func send(_ question: String, images: [Data], transcript: () -> String?, model: String?, tool: URL, path: String, folder: URL) {
+    func send(_ question: String, images: [Data], transcript: () -> String?, model: String?, tool: URL, path: String) {
         guard !running else { return }
         var prompt = question
         if session == nil {
@@ -136,7 +165,7 @@ final class AssistantChat: ObservableObject {
         let p = Process()
         p.executableURL = tool
         p.arguments = args
-        p.currentDirectoryURL = folder
+        p.currentDirectoryURL = Self.workingDirectory
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = path
         p.environment = env
@@ -239,6 +268,7 @@ final class AssistantChat: ObservableObject {
         process = nil
         imageFiles.forEach { try? FileManager.default.removeItem(at: $0) }
         imageFiles = []
+        defer { save() }
         guard let i = messages.firstIndex(where: { $0.id == reply }), messages[i].role == .assistant else { return }
         if messages[i].text.isEmpty {
             if ok {
@@ -247,5 +277,10 @@ final class AssistantChat: ObservableObject {
                 messages[i] = Message(role: .error, text: stderr.isEmpty ? L("\(kind.name) 沒有回應", "\(kind.name) didn’t respond") : String(stderr.suffix(600)))
             }
         }
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(Saved(session: session, messages: messages)) else { return }
+        try? data.write(to: file, options: .atomic)
     }
 }
