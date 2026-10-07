@@ -617,6 +617,7 @@ private struct AssistantChatView: View {
     /// 還沒送出的圖
     @State private var images: [Data] = []
     @State private var dropping = false
+    @State private var pasteMonitor: Any?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -726,7 +727,22 @@ private struct AssistantChatView: View {
             }
         }
         .onDrop(of: [.fileURL, .image], isTargeted: $dropping, perform: drop)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            // 文字框自己會吃掉 ⌘V，只會貼文字；剪貼簿是圖的話先攔下來當附件
+            pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard focused, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                      event.charactersIgnoringModifiers == "v" else { return event }
+                let pasted = pastedImages()
+                guard !pasted.isEmpty else { return event }
+                images += pasted
+                return nil
+            }
+        }
+        .onDisappear {
+            if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }
+            pasteMonitor = nil
+        }
     }
 
     private func submit() {
@@ -735,6 +751,16 @@ private struct AssistantChatView: View {
         draft = ""
         send(q, images)
         images = []
+    }
+
+    /// Finder 複製的圖檔，或截圖、瀏覽器「複製圖片」的圖片本身；剪貼簿有文字（例如網頁上連字帶圖複製）就照常貼文字
+    private func pastedImages() -> [Data] {
+        let pb = NSPasteboard.general
+        let files = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true,
+                                                                       .urlReadingContentsConformToTypes: ["public.image"]]) as? [URL] ?? []
+        if !files.isEmpty { return files.compactMap { NSImage(contentsOf: $0).flatMap(AssistantChat.jpeg) } }
+        guard pb.string(forType: .string) == nil else { return [] }
+        return (pb.readObjects(forClasses: [NSImage.self]) as? [NSImage] ?? []).compactMap(AssistantChat.jpeg)
     }
 
     private func pickImages() {
