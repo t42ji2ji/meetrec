@@ -792,6 +792,53 @@ private struct AssistantChatView: View {
         return accepted
     }
 
+    /// 回覆轉成可點的文字：codex 的檔案引用、反引號包住的路徑、裸網址和裸路徑都變成連結，點了用預設 app 打開
+    static func linked(_ text: String) -> AttributedString {
+        func fileLink(_ path: String) -> String {
+            let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            return "[\(path)](<\(url.absoluteString)>)"
+        }
+        var s = text
+        // :codex-file-citation{path="…" purpose="output"}
+        s = s.replacing(#/:codex-file-citation\{[^}]*?path="([^"]+)"[^}]*\}/#) { fileLink(String($0.1)) }
+        // `~/…` 或 `/Users/…`，路徑可能有空白，反引號是最可靠的邊界
+        s = s.replacing(#/`((?:~|\/)[^`\n]*\/[^`\n]*)`/#) { m in
+            let p = String(m.1)
+            return FileManager.default.fileExists(atPath: (p as NSString).expandingTildeInPath) ? fileLink(p) : String(m.0)
+        }
+        var out = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        // 剩下的裸網址、裸路徑（不在連結或程式碼裡的才處理）
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        var links: [(offset: Int, count: Int, url: URL)] = []
+        for run in out.runs where run.link == nil && run.inlinePresentationIntent?.contains(.code) != true {
+            let piece = String(out[run.range].characters)
+            let ns = NSRange(piece.startIndex..., in: piece)
+            var found: [(Range<String.Index>, URL)] = []
+            for r in detector?.matches(in: piece, range: ns) ?? [] {
+                if let url = r.url, url.scheme?.hasPrefix("http") == true, let range = Range(r.range, in: piece) { found.append((range, url)) }
+            }
+            // 路徑前面要是開頭、空白或標點，避免把網址或分數的一段當路徑
+            for m in piece.matches(of: #/(?:^|[\s"'(\[（「：:])(~?\/[^\s`"'<>()\[\]，。、；：「」（）]+)/#) {
+                var p = String(m.1)
+                while let last = p.last, ".,;:!?".contains(last) { p.removeLast() }
+                let full = (p as NSString).expandingTildeInPath
+                guard p.dropFirst().contains("/"), FileManager.default.fileExists(atPath: full),
+                      !found.contains(where: { $0.0.overlaps(m.range) }) else { continue }
+                let lo = m.1.startIndex
+                found.append((lo..<piece.index(lo, offsetBy: p.count), URL(fileURLWithPath: full)))
+            }
+            let base = out.characters.distance(from: out.startIndex, to: run.range.lowerBound)
+            for (range, url) in found {
+                links.append((base + piece.distance(from: piece.startIndex, to: range.lowerBound), piece.distance(from: range.lowerBound, to: range.upperBound), url))
+            }
+        }
+        for l in links {
+            let start = out.characters.index(out.startIndex, offsetBy: l.offset)
+            out[start..<out.characters.index(start, offsetBy: l.count)].link = l.url
+        }
+        return out
+    }
+
     @ViewBuilder private func message(_ m: AssistantChat.Message) -> some View {
         switch m.role {
         case .user:
@@ -817,9 +864,13 @@ private struct AssistantChatView: View {
                 if m.text.isEmpty {
                     TypingDots()
                 } else {
-                    Text((try? AttributedString(markdown: m.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(m.text))
-                        .textSelection(.enabled)
-                        .lineSpacing(2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(Self.linked(m.text))
+                            .textSelection(.enabled)
+                            .lineSpacing(2)
+                        // 已經吐出一段但還沒講完（例如 codex 一段一段回），點點留著表示還在想
+                        if chat.running, m.id == chat.messages.last?.id { TypingDots() }
+                    }
                 }
             }
             .padding(.horizontal, 12)
