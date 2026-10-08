@@ -794,13 +794,15 @@ private struct AssistantChatView: View {
 
     /// 回覆轉成可點的文字：codex 的檔案引用、反引號包住的路徑、裸網址和裸路徑都變成連結，點了用預設 app 打開
     static func linked(_ text: String) -> AttributedString {
-        func fileLink(_ path: String) -> String {
+        func fileLink(_ path: String, label: String? = nil) -> String {
             let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-            return "[\(path)](<\(url.absoluteString)>)"
+            return "[\(label ?? path)](<\(url.absoluteString)>)"
         }
         var s = text
         // :codex-file-citation{path="…" purpose="output"}
         s = s.replacing(#/:codex-file-citation\{[^}]*?path="([^"]+)"[^}]*\}/#) { fileLink(String($0.1)) }
+        // Claude Code 常寫成 [檔名](/Users/…)，路徑有空白時 markdown 解析不了，先換成 file:// 網址
+        s = s.replacing(#/\[([^\]\n]+)\]\(<?((?:~|\/)[^)>\n]+)>?\)/#) { fileLink(String($0.2), label: String($0.1)) }
         // `~/…` 或 `/Users/…`，路徑可能有空白，反引號是最可靠的邊界
         s = s.replacing(#/`((?:~|\/)[^`\n]*\/[^`\n]*)`/#) { m in
             let p = String(m.1)
@@ -868,6 +870,10 @@ private struct AssistantChatView: View {
                         Text(Self.linked(m.text))
                             .textSelection(.enabled)
                             .lineSpacing(2)
+                            // 預設的 openURL 點 file:// 連結沒反應，檔案交給 Finder 用預設 app 開
+                            .environment(\.openURL, OpenURLAction { url in
+                                url.isFileURL && NSWorkspace.shared.open(url) ? .handled : .systemAction
+                            })
                         // 已經吐出一段但還沒講完（例如 codex 一段一段回），點點留著表示還在想
                         if chat.running, m.id == chat.messages.last?.id { TypingDots() }
                     }
