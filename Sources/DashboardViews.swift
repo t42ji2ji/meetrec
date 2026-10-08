@@ -819,11 +819,12 @@ private struct AssistantChatView: View {
             let p = String(m.1)
             return FileManager.default.fileExists(atPath: (p as NSString).expandingTildeInPath) ? fileLink(p) : String(m.0)
         }
-        var out = (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        var out = (try? AttributedString(markdown: hardBreaks(s), options: .init(interpretedSyntax: .full))) ?? AttributedString(s)
         // 剩下的裸網址、裸路徑（不在連結或程式碼裡的才處理）
         let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
         var links: [(offset: Int, count: Int, url: URL)] = []
-        for run in out.runs where run.link == nil && run.inlinePresentationIntent?.contains(.code) != true {
+        for run in out.runs where run.link == nil && run.inlinePresentationIntent?.contains(.code) != true
+            && run.presentationIntent?.components.contains(where: { if case .codeBlock = $0.kind { true } else { false } }) != true {
             let piece = String(out[run.range].characters)
             let ns = NSRange(piece.startIndex..., in: piece)
             var found: [(Range<String.Index>, URL)] = []
@@ -850,6 +851,24 @@ private struct AssistantChatView: View {
             out[start..<out.characters.index(start, offsetBy: l.count)].link = l.url
         }
         return out
+    }
+
+    /// markdown 的單一換行會變成空白，但回覆裡的換行是有意的：接著一般文字的行尾補硬換行。
+    /// 下一行是清單、標題、表格等區塊開頭，或這行本身是標題、表格、分隔線、程式碼區塊時不補，免得多出反斜線
+    private static func hardBreaks(_ text: String) -> String {
+        var lines = text.components(separatedBy: "\n")
+        let starts = #/^\s*(?:[-*+]\s|\d+[.)]\s|#{1,6}\s|>|\||```|~~~|(?:[-*_=]\s*){3,}$)/#
+        let own = #/^\s*(?:#{1,6}\s|\||(?:[-*_=]\s*){3,}$)/#
+        var fenced = false
+        for i in lines.indices {
+            let line = lines[i]
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") { fenced.toggle(); continue }
+            guard !fenced, i + 1 < lines.count,
+                  !line.trimmingCharacters(in: .whitespaces).isEmpty, !lines[i + 1].trimmingCharacters(in: .whitespaces).isEmpty,
+                  line.prefixMatch(of: own) == nil, lines[i + 1].prefixMatch(of: starts) == nil else { continue }
+            lines[i] += "\\"
+        }
+        return lines.joined(separator: "\n")
     }
 
     @ViewBuilder private func message(_ m: AssistantChat.Message) -> some View {
@@ -987,21 +1006,97 @@ private struct ReplyText: NSViewRepresentable {
         }
     }
 
-    /// markdown 解析出來的粗體、斜體、程式碼轉成 AppKit 字型，連結保留
+    /// markdown 解析出來的區塊（標題、清單、引用、程式碼、表格）排成段落，粗體、斜體、程式碼轉成 AppKit 字型，連結保留
     private static func appKit(_ text: AttributedString) -> NSAttributedString {
-        let base = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 2
+        let size = NSFont.systemFontSize
+        let indent: CGFloat = 18
         let out = NSMutableAttributedString()
+        var paragraph: Int?
+        var listed = [Int: Int]()  // 清單項目 → 它第一段的段落
+        var tables: [Int: NSTextTable] = [:]
         for run in text.runs {
+            let blocks = run.presentationIntent?.components ?? []
+            var piece = String(text[run.range].characters)
+            var font = NSFont.systemFont(ofSize: size)
+            var color = NSColor.labelColor
+            let style = NSMutableParagraphStyle()
+            style.lineSpacing = 2
+            style.paragraphSpacing = 6
+            var depth = 0, marker: String?
+            // components 由內往外排，從外層開始套
+            for (i, b) in blocks.enumerated().reversed() {
+                switch b.kind {
+                case .header(let level):
+                    font = .boldSystemFont(ofSize: size + max(0, CGFloat(4 - level) * 2))
+                    style.paragraphSpacingBefore = 4
+                case .listItem(let ordinal):
+                    depth += 1
+                    style.paragraphSpacing = 3
+                    // 只有清單項目的第一段要標記
+                    if listed[b.identity, default: blocks[0].identity] == blocks[0].identity {
+                        listed[b.identity] = blocks[0].identity
+                        var ordered = false
+                        if i + 1 < blocks.count, case .orderedList = blocks[i + 1].kind { ordered = true }
+                        marker = ordered ? "\(ordinal)." : (depth > 1 ? "◦" : "•")
+                    }
+                case .blockQuote:
+                    depth += 1
+                    color = .secondaryLabelColor
+                case .codeBlock:
+                    font = .monospacedSystemFont(ofSize: size - 1, weight: .regular)
+                    if piece.hasSuffix("\n") { piece.removeLast() }
+                case .thematicBreak:
+                    color = .tertiaryLabelColor
+                case .table(let columns):
+                    let table = tables[b.identity] ?? NSTextTable()
+                    table.numberOfColumns = columns.count
+                    table.collapsesBorders = true
+                    tables[b.identity] = table
+                case .tableHeaderRow:
+                    font = .boldSystemFont(ofSize: size)
+                default: break
+                }
+            }
+            if let table = blocks.compactMap({ tables[$0.identity] }).first {
+                var row = 0, column = 0
+                for b in blocks {
+                    if case .tableCell(let c) = b.kind { column = c }
+                    if case .tableRow(let r) = b.kind { row = r }
+                }
+                let cell = NSTextTableBlock(table: table, startingRow: row, rowSpan: 1, startingColumn: column, columnSpan: 1)
+                cell.setWidth(0.5, type: .absoluteValueType, for: .border)
+                cell.setBorderColor(.separatorColor)
+                cell.setWidth(4, type: .absoluteValueType, for: .padding)
+                style.textBlocks = [cell]
+                style.paragraphSpacing = 0
+            }
+            style.headIndent = CGFloat(depth) * indent
+            style.firstLineHeadIndent = style.headIndent
+            let id = blocks.first?.identity
+            if marker != nil {
+                style.firstLineHeadIndent = CGFloat(depth - 1) * indent
+                style.tabStops = [NSTextTab(textAlignment: .left, location: style.headIndent)]
+            }
+            // 段落裡的換行（硬換行、程式碼）改成行分隔符，才不會每行都多出段距
+            piece = piece.replacingOccurrences(of: "\n", with: "\u{2028}")
+            // 換段落時補換行，換行沿用上一段的樣式（表格的格子靠它收尾）
+            if let id, id != paragraph {
+                if paragraph != nil, out.length > 0 {
+                    out.append(NSAttributedString(string: "\n", attributes: out.attributes(at: out.length - 1, effectiveRange: nil)))
+                }
+                paragraph = id
+                if let marker {
+                    out.append(NSAttributedString(string: marker + "\t", attributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: color, .paragraphStyle: style]))
+                }
+            }
             let intent = run.inlinePresentationIntent ?? []
-            var font = intent.contains(.code) ? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular) : base
+            if intent.contains(.code) { font = .monospacedSystemFont(ofSize: font.pointSize - 1, weight: .regular) }
             if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
             if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
-            var attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+            var attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color, .paragraphStyle: style]
             if intent.contains(.strikethrough) { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if let link = run.link { attrs[.link] = link }
-            out.append(NSAttributedString(string: String(text[run.range].characters), attributes: attrs))
+            out.append(NSAttributedString(string: piece, attributes: attrs))
         }
         return out
     }
