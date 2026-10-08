@@ -30,7 +30,8 @@
   (function () {
     var lang = null;
     try { lang = localStorage.getItem("meetrec-lang"); } catch (e) {}
-    if (lang !== "en" && lang !== "zh") lang = /^zh/i.test(navigator.language || "") ? "zh" : "en";
+    // 預設英文；只有自己按過「中文」才記住
+    if (lang !== "en" && lang !== "zh") lang = "en";
     document.documentElement.setAttribute("data-lang", lang);
     document.documentElement.lang = lang === "zh" ? "zh-Hant-TW" : "en";
   })();
