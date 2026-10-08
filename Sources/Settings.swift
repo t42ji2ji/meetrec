@@ -92,6 +92,57 @@ enum Settings {
         set { defaults.set(min(max(newValue, 11), 36), forKey: "transcriptFontSize") }
     }
 
+    /// 常用詞（人名、產品名、行話），一行一個；轉逐字稿時當提示給語音模型，比較容易聽對
+    static var vocabulary: String {
+        get { defaults.string(forKey: "vocabulary") ?? "" }
+        set { defaults.set(newValue, forKey: "vocabulary") }
+    }
+
+    /// 給 whisper 的提示：詞用頓號接起來
+    static var vocabularyPrompt: String? {
+        let words = vocabulary.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return words.isEmpty ? nil : words.joined(separator: "、")
+    }
+
+    /// 在雲端轉錄（錄音會上傳到選的服務）；關著就在這台 Mac 上用 Whisper
+    static var cloudTranscription: Bool {
+        get { defaults.bool(forKey: "cloudTranscription") }
+        set { defaults.set(newValue, forKey: "cloudTranscription") }
+    }
+
+    static var transcriptionService: TranscriptionService {
+        get { defaults.string(forKey: "transcriptionService").flatMap(TranscriptionService.init) ?? .groq }
+        set { defaults.set(newValue.rawValue, forKey: "transcriptionService") }
+    }
+
+    static var transcriptionModel: String {
+        get {
+            let models = transcriptionService.models
+            return defaults.string(forKey: "transcriptionModel").flatMap { m in models.first { $0.id == m }?.id } ?? models[0].id
+        }
+        set { defaults.set(newValue, forKey: "transcriptionModel") }
+    }
+
+    /// 翻譯可以用雲端服務；關著就只有本機（Apple 翻譯），逐字稿不會離開這台 Mac
+    static var cloudTranslation: Bool {
+        get { defaults.bool(forKey: "cloudTranslation") }
+        set { defaults.set(newValue, forKey: "cloudTranslation") }
+    }
+
+    /// 翻譯用哪一家、哪個模型
+    static var translationProvider: TranslationProvider {
+        get { defaults.string(forKey: "translationProvider").flatMap(TranslationProvider.init) ?? .zhipu }
+        set { defaults.set(newValue.rawValue, forKey: "translationProvider") }
+    }
+
+    static var translationModel: String {
+        get {
+            let models = translationProvider.models
+            return defaults.string(forKey: "translationModel").flatMap { m in models.first { $0.id == m }?.id } ?? models[0].id
+        }
+        set { defaults.set(newValue, forKey: "translationModel") }
+    }
+
     /// 錄完自動轉逐字稿
     static var autoTranscribe: Bool {
         get { defaults.object(forKey: "autoTranscribe") as? Bool ?? true }

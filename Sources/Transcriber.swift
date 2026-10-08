@@ -11,6 +11,7 @@ enum Transcriber {
     static let helpers = Bundle.main.executableURL!.deletingLastPathComponent()
     static let whisper = helpers.appendingPathComponent("whisper-cli").path
     static let diarizer = helpers.appendingPathComponent("sherpa-diarize").path
+    static let vad = helpers.appendingPathComponent("whisper-vad").path
     static let dir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/MeetRec").path
     static let vadModel = dir + "/ggml-silero-v5.1.2.bin"
     static let segmentationModel = dir + "/pyannote-segmentation-3-0.onnx"
@@ -22,8 +23,20 @@ enum Transcriber {
 
     private typealias Line = (start: Double, end: Double, text: String)
 
-    static func transcribe(_ audio: URL, progress: @escaping (Double) -> Void) throws -> Transcript {
-        guard Models.ready else { throw TranscribeError.modelsMissing }
+    /// 聲音變文字用誰：本機的 Whisper 模型，或雲端服務。分說話者一律在本機
+    enum Engine {
+        case local(Models.Model)
+        case cloud(TranscriptionService, model: String)
+
+        static var current: Engine {
+            Settings.cloudTranscription ? .cloud(Settings.transcriptionService, model: Settings.transcriptionModel) : .local(Models.current)
+        }
+    }
+
+    /// engine：重新轉錄時可以指定這次用哪個，沒指定就照設定
+    static func transcribe(_ audio: URL, engine: Engine = .current, progress: @escaping (Double) -> Void) throws -> Transcript {
+        guard Models.support.allSatisfy(Models.installed) else { throw TranscribeError.modelsMissing }
+        if case .local(let m) = engine, !Models.installed(m) { throw TranscribeError.modelsMissing }
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -45,10 +58,10 @@ enum Transcriber {
             let turns = diarizeInBackground(tab.wav)
             let micDB = levels(mic.pcm)
             // 麥克風比瀏覽器小聲的句子是旁人或喇叭漏進麥克風的聲音，不是我
-            let me = try recognize(mic) { progress($0 * 0.3) }
+            let me = try recognize(mic, engine: engine) { progress($0 * 0.3) }
                 .filter { micLouder(micDB, tabDB, $0) }
             // 跟我說的話重複的：我的聲音被對方那邊的麥克風（例如同一間的同事）收進去又傳回來
-            let others = try recognize(tab) { progress(0.3 + $0 * 0.6) }
+            let others = try recognize(tab, engine: engine) { progress(0.3 + $0 * 0.6) }
                 .filter { o in !me.contains { echoes(o, of: $0) } }
             let who = label(others, turns: try turns.wait(), prefix: "them", single: L("對方", "Them"))
             t = Transcript(segments: me.map { .init(start: $0.start, end: $0.end, speaker: "me", text: $0.text) } + who.segments,
@@ -56,7 +69,7 @@ enum Transcriber {
         } else {
             let mono = try mic ?? wav("mono", channels.count == 2 ? zip(channels[0], channels[1]).map { ($0 + $1) / 2 } : channels[0])
             let turns = diarizeInBackground(mono.wav)
-            let lines = try recognize(mono) { progress($0 * 0.9) }
+            let lines = try recognize(mono, engine: engine) { progress($0 * 0.9) }
             let who = label(lines, turns: try turns.wait(), prefix: "s", single: "")
             t = Transcript(segments: who.segments, speakers: who.names)
         }
@@ -66,7 +79,12 @@ enum Transcriber {
         return t
     }
 
-    private static func recognize(_ audio: (wav: URL, pcm: [Float]), progress: @escaping (Double) -> Void) throws -> [Line] {
+    private static func recognize(_ audio: (wav: URL, pcm: [Float]), engine: Engine, progress: @escaping (Double) -> Void) throws -> [Line] {
+        let model: Models.Model
+        switch engine {
+        case .cloud(let service, let id): return try CloudTranscriber.recognize(audio.pcm, wav: audio.wav, service: service, model: id, progress: progress)
+        case .local(let m): model = m
+        }
         let out = audio.wav.deletingPathExtension()
         let duration = Double(audio.pcm.count) / 16000
         // whisper 自己的進度一次跳 5%（一小時的檔案要 40 秒以上才動一次），所以也看每句印出來的結束時間
@@ -81,7 +99,10 @@ enum Transcriber {
             progress(min(p, 1))
         }
         // VAD 先剪掉沒人講話的段落，不然 whisper 會在靜音裡編出「(電話響起)」之類的字
-        try run(whisper, ["-m", Models.current.path, "-l", Settings.transcriptLanguage.rawValue, "--vad", "-vm", vadModel, "-np", "-pp", "-oj", "-of", out.path, audio.wav.path], onStdout: { line in
+        var args = ["-m", model.path, "-l", Settings.transcriptLanguage.rawValue, "--vad", "-vm", vadModel, "-np", "-pp", "-oj", "-of", out.path]
+        // 常用詞每一段都帶著，不然只有開頭 30 秒看得到
+        if let prompt = Settings.vocabularyPrompt { args += ["--prompt", prompt, "--carry-initial-prompt"] }
+        try run(whisper, args + [audio.wav.path], onStdout: { line in
             // 「[00:01:02.340 --> 00:01:04.560]  句子」
             guard line.hasPrefix("["), let r = line.range(of: "--> "), duration > 0 else { return }
             let parts = line[r.upperBound...].prefix(12).split(separator: ":").compactMap { Double($0) }

@@ -9,6 +9,8 @@ struct Transcript: Codable, Equatable {
         var end: Double
         var speaker: String // speakers 的 key
         var text: String
+        /// 翻譯（翻了才有）；改了原文就清掉
+        var translation: String? = nil
     }
 
     var segments: [Segment]

@@ -107,7 +107,7 @@ final class Library: ObservableObject {
     }
 
     /// 排進轉錄佇列；已在排或在轉就忽略
-    func transcribe(_ url: URL) {
+    func transcribe(_ url: URL, engine: Transcriber.Engine? = nil) {
         if let s = status[url], !isFailed(s) { return }
         status[url] = .queued
         Transcriber.queue.async {
@@ -116,7 +116,7 @@ final class Library: ObservableObject {
             // 速度從第一個進度開始算：前面解碼、找說話段落只做一次，算進去會把剩下的時間估太多
             nonisolated(unsafe) var first: (at: Date, p: Double)?
             let result = Result {
-                try Transcriber.transcribe(url) { p in
+                try Transcriber.transcribe(url, engine: engine ?? .current) { p in
                     DispatchQueue.main.async {
                         let now = Date()
                         let f = first ?? (now, p)

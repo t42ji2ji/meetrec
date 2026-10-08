@@ -228,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.panel.show(symbol: "checkmark.circle.fill", title: L("已補存上次中斷的錄音", "Saved the interrupted recording"),
                                 subtitle: saved.map { $0.deletingLastPathComponent().lastPathComponent }.joined(separator: L("、", ", ")),
                                 buttons: [(L("打開", "Open"), false, { Dashboard.shared.show(select: saved.first) })])
-                if Settings.autoTranscribe { saved.forEach(self.library.transcribe) }
+                if Settings.autoTranscribe { saved.forEach { self.library.transcribe($0) } }
             }
         }
     }

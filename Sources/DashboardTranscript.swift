@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import Translation
 
 /// 一場錄音的逐字稿編輯：改字、改說話者、改名字。改完一秒沒動作就存（Library.save 會順便更新 srt/txt）
 @MainActor
@@ -31,6 +32,12 @@ final class TranscriptEditor: ObservableObject {
     /// 最後一次和磁碟一致的版本
     private var saved: Transcript
     private var saveTask: Task<Void, Never>?
+    /// 翻譯進度（0…1），沒在翻是 nil
+    @Published private(set) var translating: Double?
+    private var translateTask: Task<Void, Never>?
+    /// 本機翻譯：設了值，TranscriptView 的 translationTask 就開一個 session 回來呼叫 translateLocally
+    @Published private(set) var localTranslation: TranslationSession.Configuration?
+    private var localJob: (lines: [(id: UUID, text: String)], target: Translator.Target)?
     private var index: [UUID: Int] = [:]
     private let onError: (String) -> Void
     private var bag = Set<AnyCancellable>()
@@ -116,6 +123,8 @@ final class TranscriptEditor: ObservableObject {
         guard let i = index[id], transcript.segments[i].text != text else { return }
         transcript.segments[i].text = text
         rows[i].segment.text = text
+        transcript.segments[i].translation = nil
+        rows[i].segment.translation = nil
         scheduleSave()
     }
 
@@ -233,6 +242,76 @@ final class TranscriptEditor: ObservableObject {
         return key
     }
 
+    // MARK: 翻譯
+
+    var hasTranslation: Bool { transcript.segments.contains { $0.translation != nil } }
+
+    /// 整份重翻：先清掉舊的，每批翻完就填進去、存檔。cloud＝用設定裡的雲端服務，不然用本機的 Apple 翻譯
+    func translate(to target: Translator.Target, cloud: Bool) {
+        guard translating == nil else { return }
+        let lines = transcript.segments.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }.map { (id: $0.id, text: $0.text) }
+        guard !lines.isEmpty else { return }
+        for i in transcript.segments.indices {
+            transcript.segments[i].translation = nil
+            rows[i].segment.translation = nil
+        }
+        translating = 0
+        guard cloud else {
+            localJob = (lines, target)
+            localTranslation = Translator.localConfiguration(target)
+            return
+        }
+        translateTask = Task { [weak self] in
+            do {
+                try await Translator.translate(lines, to: target, provider: Settings.translationProvider, model: Settings.translationModel) { result, p in
+                    self?.apply(result, progress: p)
+                }
+            } catch is CancellationError {
+            } catch {
+                self?.onError(L("翻譯失敗：\(error.localizedDescription)", "Translation failed: \(error.localizedDescription)"))
+            }
+            self?.translating = nil
+        }
+    }
+
+    /// translationTask 拿到 session 後呼叫；語言檔沒下載的話系統會先問要不要下載
+    func translateLocally(_ session: TranslationSession) async {
+        guard let job = localJob else { return }
+        do {
+            try await Translator.translateLocally(job.lines, to: job.target, session: session) { result, p in
+                self.apply(result, progress: p)
+            }
+        } catch is CancellationError {
+        } catch {
+            onError(L("本機翻譯失敗：\(error.localizedDescription)", "On-device translation failed: \(error.localizedDescription)"))
+        }
+        localJob = nil
+        localTranslation = nil
+        translating = nil
+    }
+
+    private func apply(_ result: [UUID: String], progress: Double) {
+        for (id, t) in result {
+            guard let i = index[id] else { continue }
+            transcript.segments[i].translation = t
+            rows[i].segment.translation = t
+        }
+        translating = progress
+        scheduleSave()
+    }
+
+    func cancelTranslation() {
+        translateTask?.cancel()
+        // 把設定拿掉，translationTask 就會取消
+        if localTranslation != nil {
+            localJob = nil
+            localTranslation = nil
+            translating = nil
+        }
+    }
+
+    isolated deinit { translateTask?.cancel() }
+
     // MARK: 存檔
 
     private func scheduleSave() {
@@ -323,6 +402,8 @@ struct TranscriptView: View {
     @State private var jumpTo: UUID?
     @AppStorage("transcriptFontSize") private var fontSize = Settings.defaultFontSize
     @AppStorage("transcriptMode") private var mode = Mode.segments
+    @AppStorage("showTranslation") private var showTranslation = true
+    @AppStorage("cloudTranslation") private var cloudTranslation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -339,6 +420,7 @@ struct TranscriptView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
+                if Translator.enabled { translateButton }
                 Button { editor.replacing.toggle() } label: { Image(systemName: "text.magnifyingglass") }
                     .buttonStyle(.borderless)
                     .help(L("尋找並取代（⌘F）", "Find and Replace (⌘F)"))
@@ -357,6 +439,7 @@ struct TranscriptView: View {
                             SegmentRow(row: row, playing: editor.playing,
                                        speaker: editor.displayName(row.segment.speaker),
                                        color: editor.color(row.segment.speaker),
+                                       translation: showTranslation ? row.segment.translation : nil,
                                        editing: editingID == row.id ? Binding(get: { editor.text(row.id) }, set: { editor.setText(row.id, $0) }) : nil,
                                        focus: $focus,
                                        play: { focus = nil; player.seek(row.segment.start) },
@@ -394,6 +477,7 @@ struct TranscriptView: View {
                 }
             }
         }
+        .translationTask(editor.localTranslation) { session in await editor.translateLocally(session) }
         .onChange(of: focus) { old, new in
             // 離開輸入框（Return、Esc、點別的地方）就收回成文字並存檔
             if case .segment(let id) = old, new != old {
@@ -410,6 +494,49 @@ struct TranscriptView: View {
             }
         } message: {
             Text(L("新增後這句會改成這個人說的。", "This line will be reassigned to the new speaker."))
+        }
+    }
+
+    /// 翻譯：選要翻成哪種語言；翻譯中換成進度和停止
+    @ViewBuilder private var translateButton: some View {
+        if let p = editor.translating {
+            HStack(spacing: 6) {
+                ProgressView(value: p).frame(width: 60)
+                Button { editor.cancelTranslation() } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .help(L("停止翻譯", "Stop Translating"))
+            }
+            .padding(.leading, 10)
+        } else {
+            Menu {
+                Section(L("本機（離線）", "On This Mac (Offline)")) {
+                    Button(L("翻成中文", "Translate to Chinese")) { showTranslation = true; editor.translate(to: .zh, cloud: false) }
+                    Button(L("翻成英文", "Translate to English")) { showTranslation = true; editor.translate(to: .en, cloud: false) }
+                }
+                if cloudTranslation {
+                    let provider = Settings.translationProvider
+                    // 雲端的標雲朵和服務名稱，看得出逐字稿會送去哪
+                    Section(L("雲端：\(provider.name)", "Cloud: \(provider.name)")) {
+                        if provider.apiKey == nil {
+                            Button(L("設定 API key…", "Set Up API Key…")) { SettingsWindow.shared.show() }
+                        } else {
+                            Button(L("翻成中文", "Translate to Chinese"), systemImage: "cloud") { showTranslation = true; editor.translate(to: .zh, cloud: true) }
+                            Button(L("翻成英文", "Translate to English"), systemImage: "cloud") { showTranslation = true; editor.translate(to: .en, cloud: true) }
+                        }
+                    }
+                }
+                if editor.hasTranslation {
+                    Divider()
+                    Toggle(L("顯示翻譯", "Show Translation"), isOn: $showTranslation)
+                }
+            } label: {
+                Image(systemName: "translate")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help(L("翻譯", "Translate"))
+            .padding(.leading, 10)
         }
     }
 
@@ -730,6 +857,7 @@ private struct SegmentRow: View {
     @ObservedObject var playing: TranscriptEditor.Playing
     let speaker: String
     let color: Color
+    let translation: String?
     /// 正在改這一句才有
     let editing: Binding<String>?
     var focus: FocusState<TranscriptView.Field?>.Binding
@@ -774,11 +902,18 @@ private struct SegmentRow: View {
                     }
             } else {
                 // 只有字本身能點進編輯；字以外的空白交給整列的點擊（跳到這句播放）
-                Text(row.segment.text.isEmpty ? " " : row.segment.text)
-                    .lineSpacing(3)
-                    .onTapGesture(perform: edit)
-                    .pointerStyle(.horizontalText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.segment.text.isEmpty ? " " : row.segment.text)
+                        .lineSpacing(3)
+                        .onTapGesture(perform: edit)
+                        .pointerStyle(.horizontalText)
+                    if let translation {
+                        Text(translation)
+                            .lineSpacing(3)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.vertical, 4)

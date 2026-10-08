@@ -74,9 +74,20 @@ struct DashboardView: View {
         }
         .alert(L("要重新轉逐字稿嗎？", "Re-transcribe this recording?"), isPresented: present($model.retranscribing)) {
             Button(L("取消", "Cancel"), role: .cancel) {}
-            Button(L("重新轉錄", "Re-transcribe"), role: .destructive) { if let r = model.retranscribing { model.transcribe(r) } }
+            // 這次用哪個轉，不改設定：已下載的本機模型各一個，設好 key 的雲端服務一個
+            ForEach(Models.speech.filter(Models.installed)) { m in
+                Button(L("本機：\(m.name)", "On This Mac: \(m.name)") + (!Settings.cloudTranscription && m.id == Models.current.id ? L("（目前設定）", " (Current)") : "")) {
+                    if let r = model.retranscribing { model.transcribe(r, engine: .local(m)) }
+                }
+            }
+            let service = Settings.transcriptionService
+            if service.apiKey != nil {
+                Button(L("☁︎ 雲端：\(service.name)", "☁︎ Cloud: \(service.name)") + (Settings.cloudTranscription ? L("（目前設定）", " (Current)") : "")) {
+                    if let r = model.retranscribing { model.transcribe(r, engine: .cloud(service, model: Settings.transcriptionModel)) }
+                }
+            }
         } message: {
-            Text(L("新的逐字稿會蓋掉現在的版本，包括手動改過的文字和說話者名稱。", "The new transcript will replace the current one, including any text and speaker names you edited."))
+            Text(L("新的逐字稿會蓋掉現在的版本，包括手動改過的文字和說話者名稱。選雲端會把錄音上傳轉文字。其他本機模型要先到設定下載。", "The new transcript will replace the current one, including any text and speaker names you edited. Cloud uploads the recording to be transcribed. Download other on-device models in Settings."))
         }
         .sheet(isPresented: $model.importing) {
             ImportSheet(chooseFiles: model.importWithPanel, dropFiles: { model.importFiles($0) }, importLink: model.importLink)

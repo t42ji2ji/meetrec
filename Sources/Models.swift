@@ -47,8 +47,8 @@ final class Models: NSObject, ObservableObject {
     /// 設定裡標「建議」的：記憶體 8 GB 以下的 Mac 跑大模型會跟其他 app 搶記憶體，建議 small
     nonisolated static var recommended: Model { ProcessInfo.processInfo.physicalMemory <= 8 << 30 ? speech[0] : speech[1] }
 
-    /// 轉逐字稿現在需要的
-    nonisolated static var required: [Model] { [current] + support }
+    /// 轉逐字稿現在需要的；雲端轉錄只要分說話者那些（在本機跑）
+    nonisolated static var required: [Model] { (Settings.cloudTranscription ? [] : [current]) + support }
 
     nonisolated static var installedSize: Int64 { all.filter(installed).reduce(0) { $0 + $1.size } }
 

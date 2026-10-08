@@ -244,9 +244,9 @@ final class DashboardModel: ObservableObject {
         }
     }
 
-    func transcribe(_ r: Library.Recording) {
+    func transcribe(_ r: Library.Recording, engine: Transcriber.Engine? = nil) {
         if editor?.recording.url == r.url { editor?.discardPending() }
-        library.transcribe(r.url)
+        library.transcribe(r.url, engine: engine)
     }
 
     func reveal(_ r: Library.Recording) {
