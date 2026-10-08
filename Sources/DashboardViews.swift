@@ -867,13 +867,7 @@ private struct AssistantChatView: View {
                     TypingDots()
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(Self.linked(m.text))
-                            .textSelection(.enabled)
-                            .lineSpacing(2)
-                            // 預設的 openURL 點 file:// 連結沒反應，檔案交給 Finder 用預設 app 開
-                            .environment(\.openURL, OpenURLAction { url in
-                                url.isFileURL && NSWorkspace.shared.open(url) ? .handled : .systemAction
-                            })
+                        ReplyText(text: Self.linked(m.text))
                         // 已經吐出一段但還沒講完（例如 codex 一段一段回），點點留著表示還在想
                         if chat.running, m.id == chat.messages.last?.id { TypingDots() }
                     }
@@ -926,6 +920,79 @@ private struct AssistantMarks: View {
 extension AssistantKind {
     var mark: NSImage {
         NSImage(contentsOf: Bundle.main.resourceURL!.appendingPathComponent("icons/\(rawValue).svg")) ?? NSImage()
+    }
+}
+
+/// AI 回覆的文字。SwiftUI 的 Text 可選取時游標永遠是 I 字、點 file:// 連結也沒反應，所以改用 NSTextView：
+/// 連結上會變手指，點了用預設 app 打開
+private struct ReplyText: NSViewRepresentable {
+    let text: AttributedString
+
+    func makeNSView(context: Context) -> NSTextView {
+        let v = NSTextView(usingTextLayoutManager: false)
+        v.isEditable = false
+        v.isSelectable = true
+        v.drawsBackground = false
+        v.textContainerInset = .zero
+        v.textContainer?.lineFragmentPadding = 0
+        v.linkTextAttributes = [.foregroundColor: NSColor.linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue, .cursor: NSCursor.pointingHand]
+        v.textContainer?.widthTracksTextView = false
+        v.isVerticallyResizable = false
+        v.delegate = context.coordinator
+        // SwiftUI 會先量尺寸才呼叫 updateNSView，文字要一開始就放進去
+        updateNSView(v, context: context)
+        return v
+    }
+
+    func updateNSView(_ v: NSTextView, context: Context) {
+        guard context.coordinator.shown != text else { return }
+        context.coordinator.shown = text
+        v.textStorage?.setAttributedString(Self.appKit(text))
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView v: NSTextView, context: Context) -> CGSize? {
+        guard let container = v.textContainer, let layout = v.layoutManager else { return nil }
+        container.size = NSSize(width: proposal.width ?? .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        layout.ensureLayout(for: container)
+        let used = layout.usedRect(for: container)
+        // usedRect 的寬度一律是整個容器寬，短回覆的泡泡要貼著字，寬度另外量
+        let width = v.attributedString().boundingRect(with: container.size, options: [.usesLineFragmentOrigin, .usesFontLeading]).width
+        return CGSize(width: ceil(width), height: ceil(used.height))
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var shown: AttributedString?
+        private var last: (url: URL, at: Date)?
+
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            guard let url = link as? URL ?? (link as? String).flatMap(URL.init(string:)) else { return false }
+            // 連點或手抖點兩下只開一次
+            if let last, last.url == url, Date().timeIntervalSince(last.at) < 1.5 { return true }
+            last = (url, Date())
+            NSWorkspace.shared.open(url)
+            return true
+        }
+    }
+
+    /// markdown 解析出來的粗體、斜體、程式碼轉成 AppKit 字型，連結保留
+    private static func appKit(_ text: AttributedString) -> NSAttributedString {
+        let base = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 2
+        let out = NSMutableAttributedString()
+        for run in text.runs {
+            let intent = run.inlinePresentationIntent ?? []
+            var font = intent.contains(.code) ? NSFont.monospacedSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular) : base
+            if intent.contains(.stronglyEmphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
+            if intent.contains(.emphasized) { font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask) }
+            var attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+            if intent.contains(.strikethrough) { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            if let link = run.link { attrs[.link] = link }
+            out.append(NSAttributedString(string: String(text[run.range].characters), attributes: attrs))
+        }
+        return out
     }
 }
 
