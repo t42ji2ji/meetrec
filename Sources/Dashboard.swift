@@ -24,11 +24,12 @@ final class Dashboard: NSObject, NSWindowDelegate {
             NSApp.mainMenu = mainMenu()
         }
         w.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        // 新的 activate() 是「禮貌地請求」，從選單列點的時候別的 app 常常不讓，要點第二次才跳到前面；舊的強制版才確實搶得到
+        NSApp.activate(ignoringOtherApps: true)
         // 剛從 accessory 切成 regular 的那一輪有時候搶不到前景，下一輪再叫一次
         DispatchQueue.main.async {
             w.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            NSApp.activate(ignoringOtherApps: true)
             // SwiftUI 會把焦點給第一個文字欄位（標題），一打開就按空白鍵會變成改標題
             if w.firstResponder is NSText { w.makeFirstResponder(nil) }
         }

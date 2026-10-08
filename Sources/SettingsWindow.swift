@@ -11,7 +11,7 @@ final class SettingsWindow {
 
     func show() {
         if window == nil {
-            let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView()))
+            let w = EditingWindow(contentViewController: NSHostingController(rootView: SettingsView()))
             w.title = L("MeetRec 設定", "MeetRec Settings")
             w.styleMask = [.titled, .closable]
             w.isReleasedWhenClosed = false
@@ -21,8 +21,23 @@ final class SettingsWindow {
                 MainActor.assumeIsolated { w.title = L("MeetRec 設定", "MeetRec Settings") }
             }
         }
-        NSApp.activate()
+        // 跟主視窗一樣用強制版，從選單列點一次就跳到最前面
+        NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// 只開設定視窗時 app 是選單列模式、沒有「編輯」選單，⌘V 之類的沒有人接，貼不上 API key。自己把它們送給輸入框
+final class EditingWindow: NSWindow {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let actions: [String: Selector] = ["x": #selector(NSText.cut(_:)), "c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:)),
+                                           "a": #selector(NSText.selectAll(_:)), "z": Selector(("undo:"))]
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           let action = event.charactersIgnoringModifiers.flatMap({ actions[$0] }),
+           NSApp.sendAction(action, to: nil, from: self) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }
 
@@ -112,7 +127,7 @@ struct SettingsView: View {
                     apiKey = p.apiKey ?? ""
                     keyCheck = .idle
                 }
-                LabeledContent("API key") {
+                LabeledContent {
                     HStack {
                         SecureField("", text: $apiKey, prompt: Text(L("貼上 API key", "Paste API key")))
                             .labelsHidden()
@@ -123,6 +138,8 @@ struct SettingsView: View {
                         Button(L("檢查", "Verify")) { verifyKey() }
                             .disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty || keyCheck == .checking)
                     }
+                } label: {
+                    HStack(spacing: 4) { Text("API key"); keyBadge(keyCheck) }
                 }
                 keyStatus(keyCheck)
                 Picker(L("模型", "Model"), selection: $translationModel) {
@@ -164,7 +181,7 @@ struct SettingsView: View {
                         ForEach(service.models, id: \.id) { Text($0.name).tag($0.id) }
                     }
                     .onChange(of: serviceModel) { _, m in Settings.transcriptionModel = m }
-                    LabeledContent("API key") {
+                    LabeledContent {
                         HStack {
                             SecureField("", text: $serviceKey, prompt: Text(L("貼上 API key", "Paste API key")))
                                 .labelsHidden()
@@ -175,6 +192,8 @@ struct SettingsView: View {
                             Button(L("檢查", "Verify")) { verifyServiceKey() }
                                 .disabled(serviceKey.trimmingCharacters(in: .whitespaces).isEmpty || serviceCheck == .checking)
                         }
+                    } label: {
+                        HStack(spacing: 4) { Text("API key"); keyBadge(serviceCheck) }
                     }
                     keyStatus(serviceCheck)
                     Link(L("申請 \(service.name) 的 API key", "Get a \(service.name) API key"), destination: service.keyPage)
@@ -285,13 +304,19 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder private func keyStatus(_ check: KeyCheck) -> some View {
+    /// 檢查結果放在「API key」標題右邊，不多佔一行
+    @ViewBuilder private func keyBadge(_ check: KeyCheck) -> some View {
         switch check {
         case .idle: EmptyView()
-        case .checking: HStack { ProgressView().controlSize(.small); Text(L("檢查中…", "Checking…")).foregroundStyle(.secondary) }
-        case .ok: Label(L("可以用", "Key works"), systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-        case .failed(let m): Label(m, systemImage: "xmark.circle.fill").foregroundStyle(.red)
+        case .checking: ProgressView().controlSize(.small)
+        case .ok: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help(L("可以用", "Key works"))
+        case .failed(let m): Image(systemName: "xmark.circle.fill").foregroundStyle(.red).help(m)
         }
+    }
+
+    /// 失敗的原因比較長，才另起一行
+    @ViewBuilder private func keyStatus(_ check: KeyCheck) -> some View {
+        if case .failed(let m) = check { Text(m).foregroundStyle(.red) }
     }
 
     private func verifyServiceKey() {
@@ -352,7 +377,7 @@ enum About {
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         credits.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: credits.length))
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
         NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }
