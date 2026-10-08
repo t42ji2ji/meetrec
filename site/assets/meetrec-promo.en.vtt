@@ -1,37 +1,73 @@
 WEBVTT
 
-00:01.400 --> 00:05.100
+1
+00:00:01.600 --> 00:00:05.030
 MeetRec records your meetings, and knows who said what.
 
-00:06.000 --> 00:12.200
-When a Google Meet, Teams, or Slack huddle starts, it offers to record, right from the menu bar.
+2
+00:00:06.100 --> 00:00:09.126
+When a Google Meet, Teams, or Slack huddle starts,
 
-00:12.800 --> 00:22.700
-Afterwards, every line of the transcript is labeled with its speaker: you, and everyone else on the call.
+3
+00:00:09.176 --> 00:00:12.374
+it offers to record, right from the menu bar.
 
-00:23.300 --> 00:29.200
+4
+00:00:13.100 --> 00:00:16.951
+Afterwards, every line of the transcript is labeled with its speaker:
+
+5
+00:00:17.001 --> 00:00:19.409
+you, and everyone else on the call.
+
+6
+00:00:21.700 --> 00:00:24.735
 See how long each person talked, at a glance.
 
-00:29.800 --> 00:35.600
+7
+00:00:27.200 --> 00:00:30.061
 Click a person to see every turn they spoke.
 
-00:35.800 --> 00:42.700
+8
+00:00:31.400 --> 00:00:35.086
 Pick one, and playback jumps right to that moment.
 
-00:43.300 --> 00:46.600
-Then ask the AI you already use.
+9
+00:00:39.100 --> 00:00:41.950
+Then, ask the AI you already use.
 
-00:46.800 --> 00:52.600
+10
+00:00:42.000 --> 00:00:46.127
 MeetRec talks to Claude Code or Codex, right on your Mac.
 
-00:52.800 --> 00:59.700
+11
+00:00:46.300 --> 00:00:50.125
 It uses your own login, so there's no extra API key.
 
-01:00.300 --> 01:07.700
-Transcription runs on your Mac by default, or in the cloud with your own Groq or OpenAI key.
+12
+00:00:53.200 --> 00:00:54.903
+You can also import a recording,
 
-01:08.800 --> 01:12.900
-Free and open source, for macOS 15 and later on Apple Silicon.
+13
+00:00:54.953 --> 00:00:58.732
+or paste a YouTube, podcast, or Spotify link.
 
-01:13.100 --> 01:16.800
+14
+00:00:58.796 --> 00:01:02.563
+It's transcribed the same way, speaker by speaker.
+
+15
+00:01:03.560 --> 00:01:05.948
+Transcription runs on your Mac by default,
+
+16
+00:01:05.998 --> 00:01:09.986
+or in the cloud, with your own Groq or OpenAI key.
+
+17
+00:01:11.360 --> 00:01:16.310
+It's free and open source, for macOS 15 and later on Apple Silicon.
+
+18
+00:01:16.360 --> 00:01:19.546
 Get it at meetrec.dorara.app.

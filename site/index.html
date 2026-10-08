@@ -185,6 +185,31 @@
     </figure>
   </section>
 
+  <section class="feature flip" id="import">
+    <div class="feature-copy">
+      <p class="eyebrow"><span class="en">Import</span><span class="zh">匯入</span></p>
+      <h2><span class="en">Transcribe what you didn’t record</span><span class="zh">沒錄到的也能轉成逐字稿</span></h2>
+      <p>
+        <span class="en">Drag in audio or video files, or paste a link to a YouTube video, a podcast episode or a Spotify episode. MeetRec downloads the audio and transcribes it with the same speaker separation, so lectures, interviews and podcasts become transcripts you can search.</span>
+        <span class="zh">把音檔或影片拖進來，或貼上 YouTube、Podcast、Spotify 單集的網址。MeetRec 會下載聲音，用一樣的說話者分辨轉成逐字稿，演講、訪談、Podcast 都能拿來搜尋。</span>
+      </p>
+      <ul class="sources">
+        <li><img src="assets/youtube.svg" width="18" height="18" alt="">YouTube</li>
+        <li><img src="assets/applepodcasts.svg" width="18" height="18" alt="">Apple Podcasts</li>
+        <li><img src="assets/spotify.svg" width="18" height="18" alt="">Spotify</li>
+        <li class="files"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M4 1.5h5L12.5 5v9.5h-8.5zM9 1.5V5h3.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg><span class="en">Audio &amp; video files</span><span class="zh">音檔和影片</span></li>
+      </ul>
+      <p class="note">
+        <span class="en">Podcast links work from Apple Podcasts and the other sites yt-dlp supports. Spotify audio is copy-protected, so MeetRec downloads the same episode from Apple Podcasts instead; Spotify exclusives can’t be imported.</span>
+        <span class="zh">Podcast 支援 Apple Podcasts 和其他 yt-dlp 支援的網站。Spotify 的音檔有版權保護，MeetRec 會改從 Apple Podcasts 下載同一集；Spotify 獨家節目沒辦法匯入。</span>
+      </p>
+    </div>
+    <figure class="shot shot-sheet">
+      <img src="assets/import-sheet.png" width="1056" height="1008" loading="lazy" decoding="async" data-optional
+           alt="The Import sheet: a drop zone for audio or video files and a field to paste a link">
+    </figure>
+  </section>
+
   <!-- The rest, smaller -->
   <section class="more">
     <h2 class="more-title"><span class="en">And the parts you’d expect to be fiddly</span><span class="zh">還有那些本來很麻煩的小事</span></h2>
@@ -230,6 +255,7 @@
           <h3><span class="en">Goes online only when you choose</span><span class="zh">只有你選擇時才連網</span></h3>
           <ul>
             <li><span class="en"><b>Model download.</b> The first transcription fetches the speech models from Hugging Face.</span><span class="zh"><b>下載模型。</b>第一次轉錄時從 Hugging Face 下載語音模型。</span></li>
+            <li><span class="en"><b>Importing a link.</b> MeetRec downloads the audio from that link, and fetches the yt-dlp downloader from GitHub the first time.</span><span class="zh"><b>從網址匯入。</b>MeetRec 會從那個網址下載聲音，第一次使用時從 GitHub 下載 yt-dlp 下載工具。</span></li>
             <li><span class="en"><b>Cloud transcription.</b> If you switch it on, audio is sent to Groq or OpenAI with your own key.</span><span class="zh"><b>雲端轉錄。</b>你打開的話，錄音會用你自己的金鑰送到 Groq 或 OpenAI。</span></li>
             <li><span class="en"><b>AI chat.</b> When you use the side panel, the transcript goes to Anthropic or OpenAI through your own Claude Code or Codex.</span><span class="zh"><b>AI 對話。</b>使用側欄時，逐字稿會透過你自己的 Claude Code 或 Codex 送到 Anthropic 或 OpenAI。</span></li>
           </ul>

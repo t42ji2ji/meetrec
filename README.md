@@ -12,7 +12,7 @@ Meeting recorder for the macOS menu bar. Records, transcribes, and knows who sai
 
 <a href="https://meetrec.dorara.app/#video"><img src="site/assets/poster.jpg" width="720" alt="MeetRec promo video: every line of the transcript labeled with its speaker"></a>
 
-[▶ Watch the 75-second intro](https://meetrec.dorara.app/#video)
+[▶ Watch the 80-second intro](https://meetrec.dorara.app/#video)
 
 </div>
 
@@ -38,6 +38,12 @@ MeetRec 待在選單列上。瀏覽器開始用麥克風（Google Meet、Teams �
 
 <img src="site/assets/ai-sidebar.png" width="720" alt="逐字稿旁的 AI 對話側欄">
 
+### 匯入檔案或貼上連結
+
+不只會議。把音檔或影片拖進來，或貼上 YouTube、Podcast（Apple Podcasts 和其他 yt-dlp 支援的網站）、Spotify 單集的連結，MeetRec 會把聲音抓下來，一樣轉成逐字稿、分出說話者。Spotify 的集數會改到 Apple Podcasts 找同一集，Spotify 獨家節目沒辦法匯入。
+
+<img src="site/assets/import-sheet.png" width="620" alt="匯入視窗，可以拖入檔案或貼上網址">
+
 ### 其他功能
 
 - 用 whisper.cpp 在本機轉錄，中英文自動偵測，也能指定語言；中文可選繁體或簡體
@@ -46,7 +52,6 @@ MeetRec 待在選單列上。瀏覽器開始用麥克風（Google Meet、Teams �
 - 換了模型或語言，可以挑模型重新轉錄
 - 點逐字稿任一句跳到那個時間播放；「逐句」和「編輯」兩種檢視，直接改字
 - 尋找並取代、搜尋所有錄音、調整字級、匯出 SRT／TXT
-- 匯入音檔或影片，或貼 YouTube、Podcast 網址，一樣自動轉逐字稿
 - 介面中英雙語，跟隨系統，也能在 app 裡切換
 
 ### 安裝
@@ -119,6 +124,12 @@ If [Claude Code](https://code.claude.com/docs/en/setup) or [Codex](https://devel
 
 <img src="site/assets/ai-sidebar.png" width="720" alt="AI chat side panel next to the transcript">
 
+### Import files and links
+
+Not just meetings. Drag in audio or video files, or paste a YouTube, podcast (Apple Podcasts and other sites yt-dlp supports) or Spotify episode link. MeetRec downloads the audio and transcribes it with speakers separated, same as a recording. Spotify episodes are fetched from the same episode on Apple Podcasts, so Spotify-exclusive shows can't be imported.
+
+<img src="site/assets/import-sheet.png" width="620" alt="Import window for dropping files or pasting a link">
+
 ### More features
 
 - Transcribes on your Mac with whisper.cpp, detecting Chinese or English automatically, or set the language yourself; Traditional or Simplified Chinese output
@@ -127,7 +138,6 @@ If [Claude Code](https://code.claude.com/docs/en/setup) or [Codex](https://devel
 - Re-transcribe a recording with a model of your choice
 - Click any line to jump there in playback; switch between a per-line view and an editor view to fix text directly
 - Find and replace, search across recordings, adjustable text size, export to SRT or TXT
-- Import audio or video files, or paste a YouTube or podcast link, and they are transcribed too
 - Interface in English and Chinese, following the system language or switched inside the app
 
 ### Install

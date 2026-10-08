@@ -14,6 +14,11 @@
       b.setAttribute("aria-pressed", String(b.getAttribute("data-set-lang") === lang));
     });
     if (remember) { try { localStorage.setItem("meetrec-lang", lang); } catch (e) {} }
+    // 影片是英文配音：中文頁面預設打開中文字幕，英文頁面不開（要的話按 CC 選）
+    var v = document.querySelector("video");
+    if (v) Array.prototype.forEach.call(v.textTracks, function (t) {
+      t.mode = lang === "zh" && t.language === "zh-Hant" ? "showing" : "disabled";
+    });
   }
   setLang(root.getAttribute("data-lang") || "en", false);
   document.querySelectorAll("[data-set-lang]").forEach(function (b) {
@@ -25,6 +30,13 @@
   function onScroll() { bar.classList.toggle("scrolled", window.scrollY > 8); }
   window.addEventListener("scroll", onScroll, { passive: true });
   onScroll();
+
+  // A screenshot that isn't there yet leaves its feature as text only
+  document.querySelectorAll("img[data-optional]").forEach(function (img) {
+    function drop() { img.closest(".feature").classList.add("no-shot"); }
+    if (img.complete && img.naturalWidth === 0) drop();
+    else img.addEventListener("error", drop);
+  });
 
   // Hide the film until its file exists
   var film = document.querySelector("[data-film]");

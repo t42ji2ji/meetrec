@@ -277,6 +277,23 @@ html[data-lang="zh"] :is(.feature h2, .more-title, .privacy h2, .closing h2) { l
 }
 .agent img { width: 22px; height: 22px; }
 
+/* Import: where audio can come from */
+.sources { list-style: none; padding: 0; margin: 26px 0 0; display: flex; flex-wrap: wrap; gap: 10px; }
+.sources li {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 9px 15px 9px 12px; border-radius: 999px;
+  background: var(--surface); outline: 1px solid var(--line); outline-offset: -1px;
+  font-weight: 600; font-size: 15px;
+}
+.sources img, .sources svg { width: 18px; height: 18px; flex: none; }
+.sources .files { color: var(--muted); font-weight: 500; }
+.shot-sheet { max-width: 560px; width: 100%; justify-self: center; }
+.feature-copy > p.note { margin-top: 20px; font-size: 14px; max-width: 34em; }
+/* Until a screenshot exists, the copy takes the full row */
+.feature.no-shot { grid-template-columns: minmax(0, 1fr); }
+.feature.no-shot .shot { display: none; }
+.feature.no-shot .feature-copy { order: 0; max-width: 760px; }
+
 /* ---------- More ---------- */
 .more { max-width: var(--max); margin: 0 auto; padding: clamp(56px, 8vw, 112px) var(--gutter); border-top: 1px solid var(--line); }
 .more-title { max-width: 14em; }
