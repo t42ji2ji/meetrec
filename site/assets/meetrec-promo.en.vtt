@@ -1,0 +1,37 @@
+WEBVTT
+
+00:01.400 --> 00:05.100
+MeetRec records your meetings, and knows who said what.
+
+00:06.000 --> 00:12.200
+When a Google Meet, Teams, or Slack huddle starts, it offers to record, right from the menu bar.
+
+00:12.800 --> 00:22.700
+Afterwards, every line of the transcript is labeled with its speaker: you, and everyone else on the call.
+
+00:23.300 --> 00:29.200
+See how long each person talked, at a glance.
+
+00:29.800 --> 00:35.600
+Click a person to see every turn they spoke.
+
+00:35.800 --> 00:42.700
+Pick one, and playback jumps right to that moment.
+
+00:43.300 --> 00:46.600
+Then ask the AI you already use.
+
+00:46.800 --> 00:52.600
+MeetRec talks to Claude Code or Codex, right on your Mac.
+
+00:52.800 --> 00:59.700
+It uses your own login, so there's no extra API key.
+
+01:00.300 --> 01:07.700
+Transcription runs on your Mac by default, or in the cloud with your own Groq or OpenAI key.
+
+01:08.800 --> 01:12.900
+Free and open source, for macOS 15 and later on Apple Silicon.
+
+01:13.100 --> 01:16.800
+Get it at meetrec.dorara.app.

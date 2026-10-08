@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MeetRec — the meeting recorder that knows who said what</title>
+<meta name="description" content="MeetRec records your Mac meetings, transcribes them on your Mac, and labels every line with who said it. Free and open source for macOS.">
+<meta name="theme-color" content="#f3f3f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121213" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://meetrec.dorara.app/">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MeetRec">
+<meta property="og:url" content="https://meetrec.dorara.app/">
+<meta property="og:title" content="MeetRec — knows who said what">
+<meta property="og:description" content="A menu bar meeting recorder for macOS. Transcribes on your Mac and labels every line with its speaker. Free and open source.">
+<meta property="og:image" content="https://meetrec.dorara.app/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MeetRec — knows who said what">
+<meta name="twitter:description" content="A menu bar meeting recorder for macOS. Transcribes on your Mac and labels every line with its speaker. Free and open source.">
+<meta name="twitter:image" content="https://meetrec.dorara.app/og-image.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  (function () {
+    var lang = null;
+    try { lang = localStorage.getItem("meetrec-lang"); } catch (e) {}
+    if (lang !== "en" && lang !== "zh") lang = /^zh/i.test(navigator.language || "") ? "zh" : "en";
+    document.documentElement.setAttribute("data-lang", lang);
+    document.documentElement.lang = lang === "zh" ? "zh-Hant-TW" : "en";
+  })();
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="bar">
+  <a class="brand" href="#top" aria-label="MeetRec">
+    <img src="assets/icon.png" width="28" height="28" alt="">
+    <span>MeetRec</span>
+  </a>
+  <nav class="bar-actions">
+    <div class="lang" role="group" aria-label="Language / 語言">
+      <button type="button" data-set-lang="en">EN</button>
+      <button type="button" data-set-lang="zh">中文</button>
+    </div>
+    <a class="bar-link" href="https://github.com/t42ji2ji/meetrec">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+
+  <!-- Hero: the claim, and a transcript that proves it -->
+  <section class="hero">
+    <div class="hero-copy">
+      <img class="hero-icon" src="assets/icon.png" width="84" height="84" alt="MeetRec app icon">
+      <h1>
+        <span class="en">The meeting recorder that knows <em>who said what.</em></span>
+        <span class="zh">知道<em>誰說了什麼</em>的會議錄音。</span>
+      </h1>
+      <p class="lede">
+        <span class="en">MeetRec sits in your Mac’s menu bar, records the call, and turns it into a transcript where every line carries a name.</span>
+        <span class="zh">MeetRec 待在 Mac 的選單列，幫你錄下會議，轉成每一句都標好說話者的逐字稿。</span>
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://github.com/t42ji2ji/meetrec/releases/latest">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 1.5v9m0 0L4.5 7M8 10.5 11.5 7M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="en">Download for Mac</span><span class="zh">下載 Mac 版</span>
+        </a>
+        <a class="btn btn-quiet" href="https://github.com/t42ji2ji/meetrec">
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          <span class="en">Source on GitHub</span><span class="zh">GitHub 原始碼</span>
+        </a>
+      </div>
+      <p class="fine">
+        <span class="en">Free &amp; open source · macOS 15 or later · Apple Silicon</span>
+        <span class="zh">免費開源 · macOS 15 以上 · Apple Silicon</span>
+      </p>
+    </div>
+
+    <figure class="live" aria-label="Example transcript">
+      <div class="live-head">
+        <span class="rec"><i></i>REC</span>
+        <span class="live-title"><span class="en">Launch Planning Sync</span><span class="zh">上線規劃會議</span></span>
+        <span class="live-clock" data-clock>00:00</span>
+      </div>
+      <ol class="live-lines" data-lines>
+        <li data-t="0"><time>00:00</time><b class="chip s-me">Me</b><span class="en">Okay, looks like everyone’s here. Let’s lock the plan for the version 2 launch.</span><span class="zh">好，人都到了。我們把第二版上線的計畫定下來。</span></li>
+        <li data-t="7"><time>00:07</time><b class="chip s-sarah">Sarah</b><span class="en">The beta wrapped up on Friday. We had about 300 testers.</span><span class="zh">Beta 週五結束了，大概有 300 位測試者。</span></li>
+        <li data-t="18"><time>00:18</time><b class="chip s-me">Me</b><span class="en">That’s the one in the empty state, right?</span><span class="zh">是空白畫面那個按鈕對吧？</span></li>
+        <li data-t="24"><time>00:24</time><b class="chip s-daniel">Daniel</b><span class="en">We can fix that this week.</span><span class="zh">這週就能修好。</span></li>
+        <li data-t="42"><time>00:42</time><b class="chip s-priya">Priya</b><span class="en">How many users does that affect?</span><span class="zh">這會影響多少使用者？</span></li>
+        <li data-t="45"><time>00:45</time><b class="chip s-daniel">Daniel</b><span class="en">Roughly 4%.</span><span class="zh">大約 4%。</span></li>
+      </ol>
+      <!-- Who held the floor, in order: the same turns as the lines above -->
+      <div class="ribbon" aria-hidden="true">
+        <div class="ribbon-track">
+          <i class="s-me" style="--a:0;--b:7"></i>
+          <i class="s-sarah" style="--a:7;--b:18"></i>
+          <i class="s-me" style="--a:18;--b:20"></i>
+          <i class="s-sarah" style="--a:20;--b:24"></i>
+          <i class="s-daniel" style="--a:24;--b:33"></i>
+          <i class="s-me" style="--a:33;--b:35"></i>
+          <i class="s-daniel" style="--a:35;--b:42"></i>
+          <i class="s-priya" style="--a:42;--b:45"></i>
+          <i class="s-daniel" style="--a:45;--b:51"></i>
+          <i class="s-priya" style="--a:51;--b:56"></i>
+          <span class="playhead" data-playhead></span>
+        </div>
+      </div>
+    </figure>
+  </section>
+
+  <section class="film" id="video" data-film>
+    <div class="film-frame">
+      <video src="assets/meetrec-promo.mp4" poster="assets/poster.jpg" controls playsinline preload="metadata" width="1440" height="1080">
+        <track kind="subtitles" srclang="en" label="English" src="assets/meetrec-promo.en.vtt">
+        <track kind="subtitles" srclang="zh-Hant" label="中文" src="assets/meetrec-promo.zh-TW.vtt">
+      </video>
+    </div>
+  </section>
+
+  <!-- Three features, in order of what matters -->
+  <section class="feature lead" id="speakers">
+    <div class="feature-copy">
+      <p class="eyebrow"><span class="en">Speaker separation</span><span class="zh">分辨說話者</span></p>
+      <h2><span class="en">Knows who said what</span><span class="zh">知道誰說了什麼</span></h2>
+      <p>
+        <span class="en">After the call, MeetRec transcribes the recording and tells the voices apart. Every line is labeled with its speaker, so you can scan a meeting the way it actually happened. Rename a speaker once and every line they said follows.</span>
+        <span class="zh">會議結束後，MeetRec 轉出逐字稿並分辨不同的聲音，每一句都標上說話者，讀起來就像會議原本的樣子。說話者的名字改一次，他說過的每一句都跟著更新。</span>
+      </p>
+      <ul class="facts">
+        <li><span class="en">Chinese and English detected automatically</span><span class="zh">中英文自動偵測</span></li>
+        <li><span class="en">Click a timestamp to hear that line</span><span class="zh">點時間就從那句開始播</span></li>
+      </ul>
+    </div>
+    <figure class="shot">
+      <img src="assets/transcript.png" width="1600" height="1200" loading="lazy" decoding="async"
+           alt="A MeetRec transcript with each line labeled Me, Sarah, Daniel or Priya">
+    </figure>
+  </section>
+
+  <section class="feature flip" id="timeline">
+    <div class="feature-copy">
+      <p class="eyebrow"><span class="en">Talk time</span><span class="zh">發言時間</span></p>
+      <h2><span class="en">Click a person, see their timeline</span><span class="zh">點一個人，看他的發言軌跡</span></h2>
+      <p>
+        <span class="en">The bar above the transcript shows how long each person spoke and their share of the meeting. Click a name’s talk time to list every turn they took, then pick one to jump playback right there.</span>
+        <span class="zh">逐字稿上方列出每個人講了多久、佔整場的比例。點某人的發言時間，就列出他每一次開口；選一段，播放直接跳到那裡。</span>
+      </p>
+      <div class="talk" aria-hidden="true">
+        <span class="chip s-me">Me</span><span class="talk-n">00:49 · 35%</span>
+        <span class="chip s-sarah">Sarah</span><span class="talk-n">00:29 · 21%</span>
+        <span class="chip s-daniel">Daniel</span><span class="talk-n">00:26 · 19%</span>
+        <span class="chip s-priya">Priya</span><span class="talk-n">00:35 · 25%</span>
+      </div>
+    </div>
+    <figure class="shot">
+      <img src="assets/speaker-turns.png" width="1600" height="1200" loading="lazy" decoding="async"
+           alt="Priya's talk time opened into a list of every turn she spoke, with timestamps">
+    </figure>
+  </section>
+
+  <section class="feature" id="ai">
+    <div class="feature-copy">
+      <p class="eyebrow"><span class="en">AI side panel</span><span class="zh">AI 側欄</span></p>
+      <h2><span class="en">Works with the AI you already use</span><span class="zh">用你已經在用的 AI</span></h2>
+      <p>
+        <span class="en">Press ⌘E and talk about the meeting with Claude Code or Codex, the command-line tools already on your Mac. They run with your own login, so there is no extra API key to set up. Ask for a summary or action items by owner and take them straight into your work.</span>
+        <span class="zh">按 ⌘E，就能跟 Mac 上已經裝好的 Claude Code 或 Codex 討論這場會議。用的是你自己的登入，不用另外申請 API 金鑰。請它整理摘要、依負責人列出待辦，直接接進你的工作流程。</span>
+      </p>
+      <div class="agents">
+        <span class="agent"><img src="assets/claude.svg" width="22" height="22" alt="">Claude Code</span>
+        <span class="agent"><img class="invert-dark" src="assets/codex.svg" width="22" height="22" alt="">Codex</span>
+      </div>
+    </div>
+    <figure class="shot">
+      <img src="assets/ai-sidebar.png" width="1600" height="1200" loading="lazy" decoding="async"
+           alt="The AI side panel summarizing decisions and listing action items by owner">
+    </figure>
+  </section>
+
+  <!-- The rest, smaller -->
+  <section class="more">
+    <h2 class="more-title"><span class="en">And the parts you’d expect to be fiddly</span><span class="zh">還有那些本來很麻煩的小事</span></h2>
+    <div class="more-grid">
+      <div class="more-list">
+        <article>
+          <h3><span class="en">Asks before it records</span><span class="zh">會議一開始就問你要不要錄</span></h3>
+          <p><span class="en">When a browser meeting such as Google Meet or Teams starts using the mic, or a Slack huddle begins, MeetRec offers to record. Nothing to remember to press.</span><span class="zh">瀏覽器裡的 Google Meet、Teams 等會議開始用麥克風，或 Slack huddle 開始時，MeetRec 會問你要不要錄，不用記得按。</span></p>
+        </article>
+        <article>
+          <h3><span class="en">You and them, on separate channels</span><span class="zh">你和對方分開收音</span></h3>
+          <p><span class="en">Your microphone goes on the left channel, everyone else on the right, so your own voice is never lost in the mix.</span><span class="zh">你的麥克風在左聲道，其他人在右聲道，自己的聲音不會被蓋掉。</span></p>
+        </article>
+        <article>
+          <h3><span class="en">On your Mac, or in the cloud if you want</span><span class="zh">在 Mac 上轉錄，也可以選雲端</span></h3>
+          <p><span class="en">Transcription runs on your Mac with Whisper by default. For speed, switch to cloud transcription with your own Groq or OpenAI key; speaker detection still stays on your Mac.</span><span class="zh">預設在 Mac 上用 Whisper 轉錄。想快一點，可以填自己的 Groq 或 OpenAI 金鑰改用雲端轉錄，說話者辨識仍在本機。</span></p>
+        </article>
+        <article>
+          <h3><span class="en">Fix it, then take it with you</span><span class="zh">改好再帶走</span></h3>
+          <p><span class="en">Edit text in place, rename speakers, replace all, and export to SRT or TXT.</span><span class="zh">直接改字、改說話者名字、全部取代，匯出 SRT 或 TXT。</span></p>
+        </article>
+        <article>
+          <h3><span class="en">Teach it your words</span><span class="zh">教它認得你的用詞</span></h3>
+          <p><span class="en">Add names and jargon to Vocabulary so the speech model hears them right.</span><span class="zh">把人名和專有名詞加進「常用詞」，語音模型就比較聽得懂。</span></p>
+        </article>
+      </div>
+      <figure class="shot shot-tall">
+        <img src="assets/settings.png" width="1040" height="1344" loading="lazy" decoding="async"
+             alt="MeetRec Settings with Transcribe on set to Cloud, service Groq and model Whisper large-v3">
+      </figure>
+    </div>
+  </section>
+
+  <section class="privacy" id="privacy">
+    <div class="privacy-inner">
+      <h2><span class="en">Your meetings stay on your Mac</span><span class="zh">會議留在你的 Mac 上</span></h2>
+      <p class="privacy-lede">
+        <span class="en">Recording, transcription and speaker detection run locally by default. Recordings are saved in your Music folder.</span>
+        <span class="zh">錄音、轉錄和說話者辨識預設都在本機執行，錄音存在「音樂」資料夾裡。</span>
+      </p>
+      <div class="privacy-cols">
+        <div>
+          <h3><span class="en">Goes online only when you choose</span><span class="zh">只有你選擇時才連網</span></h3>
+          <ul>
+            <li><span class="en"><b>Model download.</b> The first transcription fetches the speech models from Hugging Face.</span><span class="zh"><b>下載模型。</b>第一次轉錄時從 Hugging Face 下載語音模型。</span></li>
+            <li><span class="en"><b>Cloud transcription.</b> If you switch it on, audio is sent to Groq or OpenAI with your own key.</span><span class="zh"><b>雲端轉錄。</b>你打開的話，錄音會用你自己的金鑰送到 Groq 或 OpenAI。</span></li>
+            <li><span class="en"><b>AI chat.</b> When you use the side panel, the transcript goes to Anthropic or OpenAI through your own Claude Code or Codex.</span><span class="zh"><b>AI 對話。</b>使用側欄時，逐字稿會透過你自己的 Claude Code 或 Codex 送到 Anthropic 或 OpenAI。</span></li>
+          </ul>
+        </div>
+        <div class="consent">
+          <h3><span class="en">Ask first</span><span class="zh">先問過大家</span></h3>
+          <p><span class="en">Get consent from everyone in the meeting before you record, and follow the laws where you are.</span><span class="zh">錄音前請先取得與會者同意，並遵守當地法律。</span></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="closing">
+    <img src="assets/icon.png" width="64" height="64" alt="" loading="lazy">
+    <h2><span class="en">Record your next meeting with names attached.</span><span class="zh">下一場會議，連名字一起錄下來。</span></h2>
+    <a class="btn btn-primary" href="https://github.com/t42ji2ji/meetrec/releases/latest">
+      <span class="en">Download for Mac</span><span class="zh">下載 Mac 版</span>
+    </a>
+    <p class="fine"><span class="en">macOS 15 or later · Apple Silicon</span><span class="zh">macOS 15 以上 · Apple Silicon</span></p>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>© MeetRec</span>
+  <nav>
+    <a href="https://github.com/t42ji2ji/meetrec">GitHub</a>
+    <a href="https://github.com/t42ji2ji/meetrec/releases"><span class="en">Releases</span><span class="zh">版本下載</span></a>
+    <a href="https://github.com/t42ji2ji/meetrec/blob/main/LICENSE"><span class="en">License (GPL-3.0)</span><span class="zh">授權（GPL-3.0）</span></a>
+  </nav>
+</footer>
+
+<script src="main.js" defer></script>
+</body>
+</html>
