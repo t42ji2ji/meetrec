@@ -1,0 +1,51 @@
+[
+  {
+    "id": "hook",
+    "en": "Wait… who said that?",
+    "zh": "等等……這句是誰說的？",
+    "duration": 1.44,
+    "at": 0.7
+  },
+  {
+    "id": "label",
+    "en": "MeetRec records your meeting, and labels every line with who said it.",
+    "zh": "MeetRec 錄下會議，每一句都標好是誰說的。",
+    "duration": 4.18,
+    "at": 4.4
+  },
+  {
+    "id": "talk",
+    "en": "See who talked, and for how long.",
+    "zh": "誰講了多久，一眼就知道。",
+    "duration": 1.86,
+    "at": 10.3
+  },
+  {
+    "id": "link",
+    "en": "Got a YouTube video or a podcast? Just paste the link.",
+    "zh": "YouTube 影片、Podcast？貼上網址就好。",
+    "duration": 3.39,
+    "at": 14.3
+  },
+  {
+    "id": "link2",
+    "en": "Same transcript, speaker by speaker.",
+    "zh": "一樣分好每個說話者。",
+    "duration": 2.37,
+    "at": 19.7
+  },
+  {
+    "id": "ai",
+    "en": "Press Command E, and ask Claude Code or Codex for the action items.",
+    "zh": "按 ⌘E，請 Claude Code 或 Codex 列出待辦。",
+    "duration": 4.04,
+    "at": 24.5
+  },
+  {
+    "id": "end",
+    "en": "MeetRec. Free and open source, for your Mac.",
+    "zh": "MeetRec，免費開源的 Mac 會議錄音。",
+    "duration": 2.65,
+    "at": 34.5
+  }
+]

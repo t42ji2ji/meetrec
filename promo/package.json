@@ -1,0 +1,18 @@
+{
+  "name": "meetrec-promo",
+  "private": true,
+  "scripts": {
+    "voice": "node scripts/voice.mjs",
+    "studio": "npx remotion studio src/index.ts",
+    "render": "npx remotion render src/index.ts Promo out/raw.mp4 --crf=20 && ffmpeg -y -v error -i out/raw.mp4 -c:v copy -af loudnorm=I=-16:TP=-1.5 -c:a aac -b:a 160k -movflags +faststart out/meetrec-promo.mp4 && npm run subs",
+    "music": "uv run --with numpy python scripts/music.py",
+    "subs": "node scripts/subs.mjs"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.459",
+    "@remotion/google-fonts": "4.0.459",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "remotion": "4.0.459"
+  }
+}
