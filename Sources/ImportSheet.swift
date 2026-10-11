@@ -134,8 +134,28 @@ enum LinkSource: CaseIterable {
         }
     }
 
-    var mark: NSImage {
-        NSImage(contentsOf: Bundle.main.resourceURL!.appendingPathComponent("icons/\(self).svg")) ?? NSImage()
+    var mark: some View { LogoMark(name: "\(self)", color: color, size: 16) }
+}
+
+/// Resources/icons 裡的品牌 logo。YouTube 的三角形、Podcast 的圖案是鏤空的，底下墊白色才像原本的 logo
+struct LogoMark: View {
+    let name: String
+    let color: Color
+    let size: CGFloat
+
+    var body: some View {
+        Image(nsImage: NSImage(contentsOf: Bundle.main.resourceURL!.appendingPathComponent("icons/\(name).svg")) ?? NSImage())
+            .resizable()
+            .renderingMode(.template)
+            .foregroundStyle(color)
+            .frame(width: size, height: size)
+            .background {
+                switch name {
+                case "youtube": Rectangle().fill(.white).frame(width: size * 0.45, height: size * 0.4)
+                case "applepodcasts": RoundedRectangle(cornerRadius: size * 0.2).fill(.white).padding(size * 0.1)
+                default: EmptyView()
+                }
+            }
     }
 }
 
@@ -144,11 +164,7 @@ private struct SourceBadge: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(nsImage: source.mark)
-                .resizable()
-                .renderingMode(.template)
-                .foregroundStyle(source.color)
-                .frame(width: 16, height: 16)
+            source.mark
             Text(source.name).font(.callout)
         }
     }

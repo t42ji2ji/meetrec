@@ -74,18 +74,18 @@ final class Models: NSObject, ObservableObject {
         if !Self.ready { downloadMissing() }
     }
 
-    /// 下載目前需要、還沒有的
-    func downloadMissing() {
+    /// 下載目前需要、還沒有的；`only` 指定只下載哪些（引導一開始還沒選在哪裡轉錄，先抓分辨說話者的）
+    func downloadMissing(only: [Model]? = nil) {
         guard task == nil else { return }
         error = nil
         progress = 0
         task = Task {
             do {
                 try FileManager.default.createDirectory(atPath: Transcriber.dir, withIntermediateDirectories: true)
-                let missing = Self.required.filter { !Self.installed($0) }
-                let total = Double(missing.reduce(0) { $0 + $1.size })
+                // 每下載完一個重看一次：下載途中改選模型或換成本機轉錄，新需要的也會接著下載
                 var done: Int64 = 0
-                for m in missing {
+                while let m = (only ?? Self.required).first(where: { !Self.installed($0) }) {
+                    let total = Double(done + (only ?? Self.required).filter { !Self.installed($0) }.reduce(0) { $0 + $1.size })
                     try await download(m) { bytes in self.progress = Double(done + bytes) / max(total, 1) }
                     done += m.size
                     revision += 1

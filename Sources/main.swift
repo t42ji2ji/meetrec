@@ -205,8 +205,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.updateStatus() }
         }
         recoverInterrupted()
-        // 第一次用（或模型被刪了）：先到設定下載模型
-        if !Models.ready { SettingsWindow.shared.show() }
+        // 第一次用走引導；之後模型被刪了就到設定下載
+        if Onboarding.forced { Onboarding.shared.show() } else if !Models.ready { Onboarding.done ? SettingsWindow.shared.show() : Onboarding.shared.show() }
     }
 
     /// 結束或關機時把緩衝區寫進 .aac；轉成 m4a 留給下次啟動的 recoverInterrupted

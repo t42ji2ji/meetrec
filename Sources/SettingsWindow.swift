@@ -170,12 +170,12 @@ struct SettingsView: View {
                 let busy = models.progress != nil
                 Picker(L("在哪裡轉錄", "Transcribe on"), selection: $cloudTranscription) {
                     Text(L("這台 Mac", "This Mac")).tag(false)
-                    Text(L("雲端", "Cloud")).tag(true)
+                    Text(L("雲端（建議）", "Cloud (Recommended)")).tag(true)
                 }
                 .pickerStyle(.segmented)
                 if cloudTranscription {
                     Picker(L("服務", "Service"), selection: $service) {
-                        ForEach(TranscriptionService.allCases) { Text($0.name).tag($0) }
+                        ForEach(TranscriptionService.allCases) { Text($0.name + ($0 == .groq ? L("（建議，有免費額度）", " (Recommended, free tier)") : "")).tag($0) }
                     }
                     .onChange(of: service) { _, s in
                         Settings.transcriptionService = s
@@ -268,8 +268,9 @@ struct SettingsView: View {
                 Text(L("轉錄", "Transcription"))
             } footer: {
                 if cloudTranscription {
-                    Label(L("錄音會上傳到 \(service.name) 轉成文字，分辨說話者還是在這台 Mac 上做。比本機快很多，也不用下載語音模型。API key 存在這台 Mac 的鑰匙圈。換服務不會動已經轉好的逐字稿，要的話重新轉錄。",
-                            "Recordings are uploaded to \(service.name) to be transcribed; speaker detection still runs on this Mac. Much faster than on-device, and no speech model to download. The API key is stored in this Mac’s keychain. Switching doesn't change existing transcripts; re-transcribe if you want."),
+                    Label(L("錄音會上傳到 \(service.name) 轉成文字，分辨說話者還是在這台 Mac 上做。準確度較高、不佔電腦效能，也不用下載語音模型\(Speed.cloudIsFaster ? "，在這台 Mac 上也比本機快" : "")。API key 存在這台 Mac 的鑰匙圈。換服務不會動已經轉好的逐字稿，要的話重新轉錄。",
+                            "Recordings are uploaded to \(service.name) to be transcribed; speaker detection still runs on this Mac. More accurate, no load on your Mac, and no speech model to download\(Speed.cloudIsFaster ? "; on this Mac it’s also faster than on-device" : ""). The API key is stored in this Mac’s keychain. Switching doesn't change existing transcripts; re-transcribe if you want.")
+                          + (service == .groq ? L("Groq 免費額度約每天 8 小時錄音，不用綁信用卡。", " Groq’s free tier covers about 8 hours of audio a day, no credit card needed.") : ""),
                           systemImage: "cloud")
                 } else {
                     Text(L("轉逐字稿和分辨說話者都在這台 Mac 上執行，錄音不會上傳。語音模型越大越準也越慢，「建議」是照這台 Mac 的記憶體挑的；換模型不會動已經轉好的逐字稿，要的話重新轉錄。",

@@ -25,7 +25,16 @@ struct DashboardView: View {
         .navigationTitle("MeetRec")
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Button { model.importing = true } label: { Label(L("匯入…", "Import…"), systemImage: "square.and.arrow.down") }
+                // 圖示旁邊放 YouTube、Podcast、Spotify 的 logo，一看就知道網址也能匯入
+                Button { model.importing = true } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.down")
+                        ForEach(LinkSource.allCases, id: \.self) { s in
+                            LogoMark(name: "\(s)", color: s.color, size: 13)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
                     .help(L("匯入音檔、影片，或 YouTube、Podcast、Spotify 網址", "Import audio, video, or a YouTube, podcast or Spotify link"))
             }
             ToolbarItem(placement: .primaryAction) { RecordButton() }
