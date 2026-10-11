@@ -629,6 +629,8 @@ private struct AssistantChatView: View {
     @State private var images: [Data] = []
     @State private var dropping = false
     @State private var pasteMonitor: Any?
+    /// 剛複製的那則回覆，按鈕短暫變成打勾
+    @State private var copied: UUID?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -892,20 +894,37 @@ private struct AssistantChatView: View {
             .padding(.leading, 40)
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
-            Group {
-                if m.text.isEmpty {
-                    TypingDots()
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ReplyText(text: Self.linked(m.text))
-                        // 已經吐出一段但還沒講完（例如 codex 一段一段回），點點留著表示還在想
-                        if chat.running, m.id == chat.messages.last?.id { TypingDots() }
+            VStack(alignment: .leading, spacing: 2) {
+                Group {
+                    if m.text.isEmpty {
+                        TypingDots()
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ReplyText(text: Self.linked(m.text))
+                            // 已經吐出一段但還沒講完（例如 codex 一段一段回），點點留著表示還在想
+                            if chat.running, m.id == chat.messages.last?.id { TypingDots() }
+                        }
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                // 講完才給複製，複製的是原始 markdown
+                if !m.text.isEmpty, !(chat.running && m.id == chat.messages.last?.id) {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(m.text, forType: .string)
+                        copied = m.id
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { if copied == m.id { copied = nil } }
+                    } label: {
+                        Image(systemName: copied == m.id ? "checkmark" : "doc.on.doc").font(.system(size: 12)).foregroundStyle(.secondary)
+                            .frame(width: 22, height: 20)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(L("複製", "Copy"))
+                    .padding(.leading, 4)
+                }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .padding(.trailing, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
         case .error:
