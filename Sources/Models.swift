@@ -91,6 +91,8 @@ final class Models: NSObject, ObservableObject {
                     revision += 1
                 }
             } catch is CancellationError {
+            } catch let e as URLError where e.code == .cancelled {
+                // 按取消時 URLSession 丟的是這個，不是 CancellationError
             } catch {
                 self.error = L("下載失敗：\(error.localizedDescription)", "Download failed: \(error.localizedDescription)")
             }

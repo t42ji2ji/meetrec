@@ -330,7 +330,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.show(symbol: "text.bubble.fill", title: L("逐字稿好了", "Transcript ready"), subtitle: url.deletingPathExtension().lastPathComponent,
                        buttons: [(L("打開", "Open"), true, { Dashboard.shared.show(select: url) })], hideAfter: 8)
         case .failure(let error):
-            panel.show(symbol: "exclamationmark.triangle.fill", title: L("逐字稿失敗", "Transcription failed"), subtitle: "\(error)", buttons: [(L("好", "OK"), true, {})])
+            // 缺模型的話直接給去設定的路
+            let buttons: [(String, Bool, () -> Void)] = Models.ready ? [(L("好", "OK"), true, {})]
+                : [(L("好", "OK"), false, {}), (L("打開設定", "Open Settings"), true, { SettingsWindow.shared.show() })]
+            panel.show(symbol: "exclamationmark.triangle.fill", title: L("逐字稿失敗", "Transcription failed"), subtitle: "\(error)", buttons: buttons)
         }
     }
 
@@ -380,6 +383,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
+        if !Models.ready {
+            menu.addItem(MenuItem(L("下載語音模型…", "Download Speech Models…")) { SettingsWindow.shared.show() })
+        }
         menu.addItem(MenuItem(L("設定…", "Settings…")) { SettingsWindow.shared.show() })
         menu.addItem(MenuItem(L("關於 MeetRec", "About MeetRec")) { About.show() })
         menu.addItem(MenuItem(L("打開錄音資料夾", "Open Recordings Folder")) { [weak self] in

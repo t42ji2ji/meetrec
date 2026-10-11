@@ -7,6 +7,8 @@ import SwiftUI
 @MainActor
 final class SettingsWindow {
     static let shared = SettingsWindow()
+    /// 缺模型時請設定頁捲到「轉錄」
+    static let revealModels = Notification.Name("SettingsWindow.revealModels")
     private var window: NSWindow?
 
     func show() {
@@ -24,6 +26,9 @@ final class SettingsWindow {
         // 跟主視窗一樣用強制版，從選單列點一次就跳到最前面
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
+        // activate 在新版 macOS 是禮讓式的，別的 app 在前面時可能不理；至少讓視窗本身浮到最上面
+        window?.orderFrontRegardless()
+        if !Models.ready { DispatchQueue.main.async { NotificationCenter.default.post(name: Self.revealModels, object: nil) } }
     }
 }
 
@@ -67,6 +72,7 @@ struct SettingsView: View {
     private enum KeyCheck: Equatable { case idle, checking, ok, failed(String) }
 
     var body: some View {
+        ScrollViewReader { proxy in
         Form {
             Section(L("一般", "General")) {
                 // 兩種語言都寫，切錯了也找得回來
@@ -266,10 +272,13 @@ struct SettingsView: View {
                             "Recordings are uploaded to \(service.name) to be transcribed; speaker detection still runs on this Mac. Much faster than on-device, and no speech model to download. The API key is stored in this Mac’s keychain. Switching doesn't change existing transcripts; re-transcribe if you want."),
                           systemImage: "cloud")
                 } else {
-                    Text(L("轉逐字稿和分辨說話者都在這台 Mac 上執行，錄音不會上傳。語音模型越大越準也越慢，「建議」是照這台 Mac 的記憶體挑的；換模型不會動已經轉好的逐字稿，要的話重新轉錄。模型目前佔 \(size(Models.installedSize))，存在「應用程式支援」資料夾。",
-                           "Transcription and speaker detection run on this Mac; recordings are never uploaded. Larger speech models are more accurate but slower; “Recommended” is based on this Mac's memory. Switching models doesn't change existing transcripts; re-transcribe if you want. Models currently use \(size(Models.installedSize)) in the Application Support folder."))
+                    Text(L("轉逐字稿和分辨說話者都在這台 Mac 上執行，錄音不會上傳。語音模型越大越準也越慢，「建議」是照這台 Mac 的記憶體挑的；換模型不會動已經轉好的逐字稿，要的話重新轉錄。",
+                           "Transcription and speaker detection run on this Mac; recordings are never uploaded. Larger speech models are more accurate but slower; “Recommended” is based on this Mac's memory. Switching models doesn't change existing transcripts; re-transcribe if you want.")
+                         + (Models.installedSize > 0 ? L("模型目前佔 \(size(Models.installedSize))，存在「應用程式支援」資料夾。",
+                                                         " Models currently use \(size(Models.installedSize)) in the Application Support folder.") : ""))
                 }
             }
+            .id("transcription")
 
             Section {
                 LabeledContent(L("麥克風", "Microphone")) {
@@ -295,6 +304,12 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { if !Models.ready { proxy.scrollTo("transcription", anchor: .top) } }
+        .onReceive(NotificationCenter.default.publisher(for: SettingsWindow.revealModels)) { _ in
+            // 加動畫會停在半路，直接跳
+            proxy.scrollTo("transcription", anchor: .top)
+        }
+        }
         .id(language)
         // 小螢幕放不下整頁，固定高度讓內容捲動
         .frame(width: 520, height: 640)

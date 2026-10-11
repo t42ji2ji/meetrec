@@ -87,7 +87,9 @@ struct DashboardView: View {
                 }
             }
         } message: {
-            Text(L("新的逐字稿會蓋掉現在的版本，包括手動改過的文字和說話者名稱。選雲端會把錄音上傳轉文字。其他本機模型要先到設定下載。", "The new transcript will replace the current one, including any text and speaker names you edited. Cloud uploads the recording to be transcribed. Download other on-device models in Settings."))
+            let anyLocal = Models.speech.contains(where: Models.installed)
+            Text(L("新的逐字稿會蓋掉現在的版本，包括手動改過的文字和說話者名稱。選雲端會把錄音上傳轉文字。", "The new transcript will replace the current one, including any text and speaker names you edited. Cloud uploads the recording to be transcribed. ")
+                 + (anyLocal ? L("其他本機模型要先到設定下載。", "Download other on-device models in Settings.") : L("本機模型要先到設定下載。", "Download an on-device model in Settings first.")))
         }
         .sheet(isPresented: $model.importing) {
             ImportSheet(chooseFiles: model.importWithPanel, dropFiles: { model.importFiles($0) }, importLink: model.importLink)
@@ -368,6 +370,8 @@ private struct LiveDetail: View {
 
 private struct RecordingDetail: View {
     @ObservedObject var model: DashboardModel
+    /// 模型下載完，「還沒有逐字稿」的提示要跟著換
+    @ObservedObject private var models = Models.shared
     let recording: Library.Recording
     let status: Library.Status?
     @State private var title = ""
@@ -470,16 +474,32 @@ private struct RecordingDetail: View {
                         Text(message)
                     } actions: {
                         Button(L("重試", "Retry")) { model.transcribe(recording) }
+                        if !Models.ready { Button(L("打開設定", "Open Settings")) { SettingsWindow.shared.show() } }
                     }
                 case nil:
+                    let _ = models.revision
                     ContentUnavailableView {
                         Label(L("還沒有逐字稿", "No Transcript Yet"), systemImage: "text.bubble")
                     } description: {
-                        Text(L("轉好之後可以點時間跳著聽、修正文字和說話者。", "Once transcribed, you can click timestamps to jump around and fix text and speakers."))
+                        if Models.ready {
+                            Text(L("轉好之後可以點時間跳著聽、修正文字和說話者。", "Once transcribed, you can click timestamps to jump around and fix text and speakers."))
+                        } else {
+                            Text(L("要先下載語音模型才能轉逐字稿，只需要下載一次。", "Download the speech models first. You only need to do this once."))
+                        }
                     } actions: {
-                        Button(L("開始轉逐字稿", "Transcribe")) { model.transcribe(recording) }
+                        if Models.ready {
+                            Button(L("開始轉逐字稿", "Transcribe")) { model.transcribe(recording) }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
+                        } else {
+                            // 直接開始下載，設定頁顯示進度
+                            Button(L("下載語音模型", "Download Speech Models")) {
+                                models.downloadMissing()
+                                SettingsWindow.shared.show()
+                            }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.large)
+                        }
                     }
                 }
             }
@@ -510,6 +530,7 @@ private struct RecordingDetail: View {
         HStack {
             Label(L("重新轉錄失敗：\(message)", "Re-transcription failed: \(message)"), systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
             Spacer()
+            if !Models.ready { Button(L("打開設定", "Open Settings")) { SettingsWindow.shared.show() } }
             Button(L("重試", "Retry")) { model.transcribe(recording) }
         }
     }
@@ -913,7 +934,9 @@ private struct AssistantChatView: View {
                 if !m.text.isEmpty, !(chat.running && m.id == chat.messages.last?.id) {
                     Button {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(m.text, forType: .string)
+                        // codex 的檔案引用標記換成路徑，貼到別處才看得懂
+                        let text = m.text.replacing(#/:codex-file-citation\{[^}]*?path="([^"]+)"[^}]*\}/#) { String($0.1) }
+                        NSPasteboard.general.setString(text, forType: .string)
                         copied = m.id
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { if copied == m.id { copied = nil } }
                     } label: {
