@@ -17,6 +17,12 @@ final class Library: ObservableObject {
         /// 這場錄音的資料夾
         var folder: URL { url.deletingLastPathComponent() }
         var title: String { folder.lastPathComponent }
+        /// 資料夾開頭的「2026-10-12 10-10 」：留在檔名裡 Finder 才照時間排，畫面上日期另外有顯示，所以只顯示 name
+        var datePrefix: String? { title.prefixMatch(of: #/\d{4}-\d{2}-\d{2} \d{2}-\d{2} /#).map { String($0.output) } }
+        var name: String {
+            guard let p = datePrefix, title.count > p.count else { return title }
+            return String(title.dropFirst(p.count))
+        }
     }
 
     enum Status: Equatable {

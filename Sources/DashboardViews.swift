@@ -74,8 +74,8 @@ struct DashboardView: View {
             Button(L("取消", "Cancel"), role: .cancel) {}
             Button(L("好", "OK")) { if let r = model.renaming { model.rename(r, to: renameText) } }
         }
-        .onChange(of: model.renaming) { _, r in if let r { renameText = r.title } }
-        .alert(L("要把「\(model.deleting?.title ?? "")」移到垃圾桶嗎？", "Move “\(model.deleting?.title ?? "")” to the Trash?"), isPresented: present($model.deleting)) {
+        .onChange(of: model.renaming) { _, r in if let r { renameText = r.name } }
+        .alert(L("要把「\(model.deleting?.name ?? "")」移到垃圾桶嗎？", "Move “\(model.deleting?.name ?? "")” to the Trash?"), isPresented: present($model.deleting)) {
             Button(L("取消", "Cancel"), role: .cancel) {}
             Button(L("移到垃圾桶", "Move to Trash"), role: .destructive) { if let r = model.deleting { model.delete(r) } }
         } message: {
@@ -248,7 +248,7 @@ private struct RecordingRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(recording.title).lineLimit(1).truncationMode(.middle).help(recording.title)
+            Text(recording.name).lineLimit(1).truncationMode(.middle).help(recording.name)
             HStack(spacing: 6) {
                 Text(recording.dateText)
                 Text(Transcript.clock(recording.duration))
@@ -412,7 +412,7 @@ private struct RecordingDetail: View {
                 .font(.title2.weight(.semibold))
                 .focused($editingTitle)
                 .onSubmit { commitTitle() }
-                .onExitCommand { title = recording.title; editingTitle = false }
+                .onExitCommand { title = recording.name; editingTitle = false }
                 .onChange(of: editingTitle) { _, editing in if !editing { commitTitle() } }
                 .help(L("點一下改名", "Click to rename"))
             HStack(spacing: 8) {
@@ -428,14 +428,14 @@ private struct RecordingDetail: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear { title = recording.title; titleURL = recording.url }
+        .onAppear { title = recording.name; titleURL = recording.url }
         .onChange(of: recording.url) { old, _ in
             // 改到一半就切到別場：改名還是套用到原本那一場
             let t = title.trimmingCharacters(in: .whitespaces)
-            if titleURL == old, let r = model.library.recordings.first(where: { $0.url == old }), !t.isEmpty, t != r.title {
+            if titleURL == old, let r = model.library.recordings.first(where: { $0.url == old }), !t.isEmpty, t != r.name {
                 model.rename(r, to: t)
             }
-            title = recording.title
+            title = recording.name
             titleURL = recording.url
         }
     }
@@ -443,13 +443,13 @@ private struct RecordingDetail: View {
     private func commitTitle() {
         guard titleURL == recording.url else { return }
         let t = title.trimmingCharacters(in: .whitespaces)
-        guard !t.isEmpty, t != recording.title else {
-            title = recording.title
+        guard !t.isEmpty, t != recording.name else {
+            title = recording.name
             return
         }
         model.rename(recording, to: t)
         // 失敗的話（例如名稱重複）改回原來的
-        if model.error != nil { title = recording.title }
+        if model.error != nil { title = recording.name }
     }
 
     @ViewBuilder private var content: some View {

@@ -212,10 +212,11 @@ final class DashboardModel: ObservableObject {
 
     // MARK: 動作
 
+    /// title 是畫面上的名稱（不含日期）；資料夾的日期開頭保留
     func rename(_ r: Library.Recording, to title: String) {
         if editor?.recording.url == r.url { editor?.flush() }
         do {
-            let url = try library.rename(r, to: title)
+            let url = try library.rename(r, to: (r.datePrefix ?? "") + title)
             guard url != r.url else { return }
             if player.url == r.url { player.moved(to: url) }
             if selection == .recording(r.url) { selection = .recording(url) }
@@ -305,7 +306,7 @@ final class DashboardModel: ObservableObject {
         chat.send(question, images: images, transcript: { [weak self] in
             guard let self else { return nil }
             let t = editor?.recording.url == r.url ? editor?.transcript : transcript(for: r.url)
-            return t.map { "\(r.title)（\(r.dateText)）\n\n" + $0.txt() }
+            return t.map { "\(r.name)（\(r.dateText)）\n\n" + $0.txt() }
         }, model: model, tool: tool, path: found.path)
     }
 
