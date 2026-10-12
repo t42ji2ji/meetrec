@@ -97,6 +97,8 @@ final class AssistantChat: ObservableObject {
     private let file: URL
     @Published private(set) var messages: [Message] = []
     @Published private(set) var running = false
+    /// 正在用的工具（MCP、讀檔、skill…），回覆中顯示在點點旁邊
+    @Published private(set) var activity: String?
     private var session: String?
     private var process: Process?
     /// 給 codex 的暫存圖檔，回完就刪
@@ -125,7 +127,7 @@ final class AssistantChat: ObservableObject {
         try? FileManager.default.removeItem(at: file)
     }
 
-    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編。使用者也可能附上其他場會議的逐字稿當參考，每份開頭有標題和日期，提到時要講清楚是哪一場。"
+    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編；需要逐字稿以外的資料時可以用工具去查。使用者也可能附上其他場會議的逐字稿當參考，每份開頭有標題和日期，提到時要講清楚是哪一場。"
 
     /// context：這一句另外附上的其他場逐字稿
     func send(_ question: String, images: [Data], refs: [String], context: String, transcript: () -> String?, model: String?, tool: URL, path: String) {
@@ -142,8 +144,10 @@ final class AssistantChat: ObservableObject {
         switch kind {
         case .claude:
             // 圖片要用 JSON 輸入才能跟文字一起送
+            // -p 沒有權限確認：內建工具只留唯讀的，其餘（使用者自己的 MCP）直接放行
             args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-                    "--tools", "", "--strict-mcp-config", "--system-prompt", Self.instructions]
+                    "--tools", "Read,Grep,Glob,WebFetch,WebSearch,Skill,ToolSearch", "--permission-mode", "bypassPermissions",
+                    "--append-system-prompt", Self.instructions]
             if let session { args += ["--resume", session] }
             if let model { args += ["--model", model] }
             var content: [[String: Any]] = images.map {
@@ -153,7 +157,8 @@ final class AssistantChat: ObservableObject {
             let line: [String: Any] = ["type": "user", "message": ["role": "user", "content": content]]
             input = ((try? JSONSerialization.data(withJSONObject: line)) ?? Data()) + Data("\n".utf8)
         case .codex:
-            args = ["exec"] + (session.map { ["resume", $0] } ?? ["-s", "read-only"]) + ["--json", "--skip-git-repo-check"]
+            // resume 不吃 -s，用設定覆寫讓接續的對話也是唯讀
+            args = ["exec", "-c", "sandbox_mode=\"read-only\""] + (session.map { ["resume", $0] } ?? []) + ["--json", "--skip-git-repo-check"]
             if let model { args += ["-m", model] }
             // codex 只吃圖檔路徑，先寫到暫存資料夾
             for data in images {
@@ -235,15 +240,29 @@ final class AssistantChat: ObservableObject {
         guard let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let type = o["type"] as? String else { return }
         switch (kind, type) {
         case (.claude, "stream_event"):
-            if let e = o["event"] as? [String: Any], let d = e["delta"] as? [String: Any], d["type"] as? String == "text_delta", let t = d["text"] as? String {
+            guard let e = o["event"] as? [String: Any] else { break }
+            if let d = e["delta"] as? [String: Any], d["type"] as? String == "text_delta", let t = d["text"] as? String {
+                activity = nil
                 append(t, to: reply)
+            } else if e["type"] as? String == "content_block_start", let b = e["content_block"] as? [String: Any] {
+                if b["type"] as? String == "tool_use", let name = b["name"] as? String {
+                    activity = name.split(separator: "__").last.map(String.init)
+                } else if b["type"] as? String == "text", !text(of: reply).isEmpty {
+                    // 用完工具再開口的那段跟前面隔開
+                    append("\n\n", to: reply)
+                }
             }
         case (.claude, "result"):
             if let s = o["session_id"] as? String { session = s }
             if o["is_error"] as? Bool == true, let r = o["result"] as? String { fail(r, reply: reply) }
         case (.codex, "thread.started"):
             if let s = o["thread_id"] as? String { session = s }
+        case (.codex, "item.started"):
+            if let item = o["item"] as? [String: Any] {
+                activity = item["tool"] as? String ?? item["command"] as? String
+            }
         case (.codex, "item.completed"):
+            activity = nil
             if let item = o["item"] as? [String: Any], item["type"] as? String == "agent_message", let t = item["text"] as? String {
                 append((text(of: reply).isEmpty ? "" : "\n\n") + t, to: reply)
             }
@@ -268,6 +287,7 @@ final class AssistantChat: ObservableObject {
 
     private func finished(reply: UUID, ok: Bool, stderr: String) {
         running = false
+        activity = nil
         process = nil
         imageFiles.forEach { try? FileManager.default.removeItem(at: $0) }
         imageFiles = []

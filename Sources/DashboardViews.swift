@@ -1062,6 +1062,16 @@ private struct AssistantChatView: View {
         return lines.joined(separator: "\n")
     }
 
+    /// 回覆中的點點，用工具時旁邊寫是哪個
+    private var working: some View {
+        HStack(spacing: 8) {
+            TypingDots()
+            if let a = chat.activity {
+                Text(L("使用 \(a)", "Using \(a)")).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+    }
+
     @ViewBuilder private func message(_ m: AssistantChat.Message) -> some View {
         switch m.role {
         case .user:
@@ -1093,12 +1103,12 @@ private struct AssistantChatView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Group {
                     if m.text.isEmpty {
-                        TypingDots()
+                        working
                     } else {
                         VStack(alignment: .leading, spacing: 4) {
                             ReplyText(text: Self.linked(m.text))
                             // 已經吐出一段但還沒講完（例如 codex 一段一段回），點點留著表示還在想
-                            if chat.running, m.id == chat.messages.last?.id { TypingDots() }
+                            if chat.running, m.id == chat.messages.last?.id { working }
                         }
                     }
                 }
