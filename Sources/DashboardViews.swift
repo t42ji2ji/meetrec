@@ -795,6 +795,7 @@ private struct AssistantChatView: View {
                     ContentUnavailableView(L("問問這場會議", "Ask About This Meeting"), systemImage: "bubble.left.and.text.bubble.right")
                 }
             }
+            ForEach(chat.approvals) { approvalCard($0) }
             VStack(alignment: .leading, spacing: 6) {
                 let found = matches
                 if !found.isEmpty {
@@ -1060,6 +1061,26 @@ private struct AssistantChatView: View {
             lines[i] += "\\"
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Claude 要用 MCP 之類的工具前先問
+    private func approvalCard(_ a: AssistantChat.Approval) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(L("要允許使用 \(a.tool) 嗎？", "Allow \(a.tool)?"), systemImage: "hand.raised.fill")
+                .font(.callout.weight(.medium))
+            if !a.detail.isEmpty {
+                Text(a.detail).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(4).textSelection(.enabled)
+            }
+            HStack {
+                Spacer()
+                Button(L("拒絕", "Deny")) { chat.answer(a, allow: false) }
+                Button(L("允許", "Allow")) { chat.answer(a, allow: true) }.buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(10)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
     }
 
     /// 回覆中的點點，用工具時旁邊寫是哪個

@@ -99,6 +99,17 @@ final class AssistantChat: ObservableObject {
     @Published private(set) var running = false
     /// 正在用的工具（MCP、讀檔、skill…），回覆中顯示在點點旁邊
     @Published private(set) var activity: String?
+
+    /// Claude 要用需要確認的工具（MCP 等）時來問，等使用者按允許或拒絕
+    struct Approval: Identifiable {
+        let id: String
+        let tool: String
+        let detail: String
+        let input: Data
+    }
+    @Published private(set) var approvals: [Approval] = []
+    /// Claude 的權限詢問要從這裡回答，回完最後結果才關
+    private var stdin: FileHandle?
     private var session: String?
     private var process: Process?
     /// 給 codex 的暫存圖檔，回完就刪
@@ -144,9 +155,11 @@ final class AssistantChat: ObservableObject {
         switch kind {
         case .claude:
             // 圖片要用 JSON 輸入才能跟文字一起送
-            // -p 沒有權限確認：內建工具只留唯讀的，其餘（使用者自己的 MCP）直接放行
+            // 內建工具只留唯讀的；要確認的（使用者自己的 MCP）經 stdio 問回來，見 handle 的 control_request。
+            // 權限模式寫死 default，不然會用使用者自己設的（例如 auto 會自己放行）
             args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-                    "--tools", "Read,Grep,Glob,WebFetch,WebSearch,Skill,ToolSearch", "--permission-mode", "bypassPermissions",
+                    "--tools", "Read,Grep,Glob,WebFetch,WebSearch,Skill,ToolSearch",
+                    "--permission-mode", "default", "--permission-prompt-tool", "stdio",
                     "--append-system-prompt", Self.instructions]
             if let session { args += ["--resume", session] }
             if let model { args += ["--model", model] }
@@ -212,13 +225,27 @@ final class AssistantChat: ObservableObject {
         do {
             try p.run()
             stdin.fileHandleForWriting.write(input)
-            try? stdin.fileHandleForWriting.close()
+            if kind == .claude {
+                self.stdin = stdin.fileHandleForWriting
+            } else {
+                try? stdin.fileHandleForWriting.close()
+            }
         } catch {
             finished(reply: reply.id, ok: false, stderr: "\(error.localizedDescription)")
         }
     }
 
     func stop() { process?.terminate() }
+
+    func answer(_ approval: Approval, allow: Bool) {
+        approvals.removeAll { $0.id == approval.id }
+        let input = (try? JSONSerialization.jsonObject(with: approval.input)) ?? [String: Any]()
+        let decision: [String: Any] = allow ? ["behavior": "allow", "updatedInput": input]
+                                            : ["behavior": "deny", "message": "使用者拒絕了這個工具"]
+        let line: [String: Any] = ["type": "control_response", "response": ["subtype": "success", "request_id": approval.id, "response": decision]]
+        guard let data = try? JSONSerialization.data(withJSONObject: line) else { return }
+        stdin?.write(data + Data("\n".utf8))
+    }
 
     /// 拖進來或選的圖：縮到長邊 1568（Claude 建議的上限，再大只是多花 token），轉成 JPEG
     nonisolated static func jpeg(_ image: NSImage) -> Data? {
@@ -252,7 +279,18 @@ final class AssistantChat: ObservableObject {
                     append("\n\n", to: reply)
                 }
             }
+        case (.claude, "control_request"):
+            guard let id = o["request_id"] as? String, let r = o["request"] as? [String: Any], r["subtype"] as? String == "can_use_tool" else { break }
+            let name = r["display_name"] as? String ?? r["tool_name"] as? String ?? ""
+            let input = r["input"] ?? [String: Any]()
+            let data = (try? JSONSerialization.data(withJSONObject: input)) ?? Data("{}".utf8)
+            let short = (try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .withoutEscapingSlashes])).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            let server = (r["mcp_server"] as? String).map { "\($0) · " } ?? ""
+            approvals.append(Approval(id: id, tool: server + name, detail: short == "{}" ? "" : String(short.prefix(300)), input: data))
         case (.claude, "result"):
+            // 這一輪問完了，關掉 stdin 讓它結束
+            try? stdin?.close()
+            stdin = nil
             if let s = o["session_id"] as? String { session = s }
             if o["is_error"] as? Bool == true, let r = o["result"] as? String { fail(r, reply: reply) }
         case (.codex, "thread.started"):
@@ -288,6 +326,9 @@ final class AssistantChat: ObservableObject {
     private func finished(reply: UUID, ok: Bool, stderr: String) {
         running = false
         activity = nil
+        approvals = []
+        try? stdin?.close()
+        stdin = nil
         process = nil
         imageFiles.forEach { try? FileManager.default.removeItem(at: $0) }
         imageFiles = []
