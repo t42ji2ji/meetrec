@@ -81,6 +81,21 @@ enum Transcriber {
         return t
     }
 
+    /// 語音輸入：一小段麥克風錄音轉成一段文字，不分說話者、不存檔
+    static func dictate(_ audio: URL) throws -> String {
+        let engine = Engine.current
+        guard Models.support.allSatisfy(Models.installed) else { throw TranscribeError.modelsMissing }
+        if case .local(let m) = engine, !Models.installed(m) { throw TranscribeError.modelsMissing }
+        let wav = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
+        defer { try? FileManager.default.removeItem(at: wav) }
+        let pcm = try Media.decode16k(audio)[0]
+        try Media.writeWav(pcm, to: wav)
+        // 英文句子之間要空格，中文不用
+        return try recognize((wav, pcm), engine: engine) { _ in }.map(\.text).reduce("") { a, b in
+            a.last?.isASCII == true && b.first?.isASCII == true ? a + " " + b : a + b
+        }
+    }
+
     private static func recognize(_ audio: (wav: URL, pcm: [Float]), engine: Engine, progress: @escaping (Double) -> Void) throws -> [Line] {
         let model: Models.Model
         switch engine {

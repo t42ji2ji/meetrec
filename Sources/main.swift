@@ -205,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated { self?.updateStatus() }
         }
         recoverInterrupted()
+        Dictation.shared.update()
         // 第一次用走引導；之後模型被刪了就到設定下載
         if Onboarding.forced { Onboarding.shared.show() } else if !Models.ready { Onboarding.done ? SettingsWindow.shared.show() : Onboarding.shared.show() }
     }

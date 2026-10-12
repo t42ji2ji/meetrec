@@ -143,6 +143,12 @@ enum Settings {
         set { defaults.set(newValue, forKey: "translationModel") }
     }
 
+    /// 語音輸入：按住右 Option 說話，放開貼到目前的視窗
+    static var dictation: Bool {
+        get { defaults.bool(forKey: "dictation") }
+        set { defaults.set(newValue, forKey: "dictation") }
+    }
+
     /// 錄完自動轉逐字稿
     static var autoTranscribe: Bool {
         get { defaults.object(forKey: "autoTranscribe") as? Bool ?? true }

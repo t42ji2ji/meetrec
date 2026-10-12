@@ -54,6 +54,7 @@ struct SettingsView: View {
     @State private var vocabulary = Settings.vocabulary
     @State private var askToRecord = Settings.askToRecord
     @State private var autoTranscribe = Settings.autoTranscribe
+    @State private var dictation = Settings.dictation
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var mic = AVCaptureDevice.authorizationStatus(for: .audio)
     @State private var confirmDelete = false
@@ -88,6 +89,11 @@ struct SettingsView: View {
                     .onChange(of: askToRecord) { _, v in Settings.askToRecord = v }
                 Toggle(L("錄完自動轉逐字稿", "Transcribe automatically after recording"), isOn: $autoTranscribe)
                     .onChange(of: autoTranscribe) { _, v in Settings.autoTranscribe = v }
+                Toggle(isOn: $dictation) {
+                    Text(L("語音輸入", "Dictation"))
+                    Text(L("按住右 Option 說話，放開就貼到目前的視窗。需要輔助使用權限", "Hold Right Option and speak; release to paste into the current window. Needs Accessibility permission"))
+                }
+                .onChange(of: dictation) { _, v in Settings.dictation = v; Dictation.shared.update() }
                 LabeledContent(L("錄音資料夾", "Recordings folder")) {
                     HStack {
                         Text(Library.shared.folder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
