@@ -220,7 +220,7 @@ final class DictationHUD: NSPanel {
     private let shadowView = NSView()
     private var autoHide: DispatchWorkItem?
     /// 視窗四周留給陰影的透明邊
-    private let pad: CGFloat = 16
+    private let pad: CGFloat = 24
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -238,9 +238,9 @@ final class DictationHUD: NSPanel {
         effect.layer?.masksToBounds = true
         shadowView.wantsLayer = true
         shadowView.layer?.shadowColor = NSColor.black.cgColor
-        shadowView.layer?.shadowOpacity = 0.3
-        shadowView.layer?.shadowRadius = 8
-        shadowView.layer?.shadowOffset = CGSize(width: 0, height: -3)
+        shadowView.layer?.shadowOpacity = 0.5
+        shadowView.layer?.shadowRadius = 12
+        shadowView.layer?.shadowOffset = CGSize(width: 0, height: -5)
         let container = NSView()
         container.addSubview(shadowView)
         container.addSubview(effect)
