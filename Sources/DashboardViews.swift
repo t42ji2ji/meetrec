@@ -76,6 +76,24 @@ struct DashboardView: View {
             Button(L("好", "OK")) { if let r = model.renaming { model.rename(r, to: renameText) } }
         }
         .onChange(of: model.renaming) { _, r in if let r { renameText = r.name } }
+        .alert(L("新增資料夾", "New Folder"), isPresented: $model.creatingGroup) {
+            TextField(L("名稱", "Name"), text: $renameText)
+            Button(L("取消", "Cancel"), role: .cancel) {}
+            Button(L("好", "OK")) { model.createGroup(renameText) }
+        }
+        .onChange(of: model.creatingGroup) { _, on in if on { renameText = "" } }
+        .alert(L("重新命名資料夾", "Rename Folder"), isPresented: present($model.renamingGroup)) {
+            TextField(L("名稱", "Name"), text: $renameText)
+            Button(L("取消", "Cancel"), role: .cancel) {}
+            Button(L("好", "OK")) { if let g = model.renamingGroup { model.renameGroup(g, to: renameText) } }
+        }
+        .onChange(of: model.renamingGroup) { _, g in if let g { renameText = g } }
+        .alert(L("要把資料夾「\(model.deletingGroup ?? "")」移到垃圾桶嗎？", "Move the folder “\(model.deletingGroup ?? "")” to the Trash?"), isPresented: present($model.deletingGroup)) {
+            Button(L("取消", "Cancel"), role: .cancel) {}
+            Button(L("移到垃圾桶", "Move to Trash"), role: .destructive) { if let g = model.deletingGroup { model.deleteGroup(g) } }
+        } message: {
+            Text(L("裡面的錄音會一起移到垃圾桶。只想拆掉資料夾的話，先把錄音拖出來。", "The recordings inside will be moved to the Trash too. To keep them, drag them out first."))
+        }
         .alert(L("要把「\(model.deleting?.name ?? "")」移到垃圾桶嗎？", "Move “\(model.deleting?.name ?? "")” to the Trash?"), isPresented: present($model.deleting)) {
             Button(L("取消", "Cancel"), role: .cancel) {}
             Button(L("移到垃圾桶", "Move to Trash"), role: .destructive) { if let r = model.deleting { model.delete(r) } }
@@ -122,6 +140,24 @@ struct DashboardView: View {
 private struct SidebarView: View {
     @ObservedObject var model: DashboardModel
     @ObservedObject private var library = Library.shared
+    /// 收起來的資料夾
+    @State private var collapsed: Set<String> = []
+    /// 拖著錄音停在哪個資料夾上；"" 是「錄音」標題（移出資料夾）
+    @State private var target: String?
+
+    private func row(_ r: Library.Recording) -> some View {
+        RecordingRow(recording: r, status: library.status[r.url], hasTranscript: model.hasTranscript(r), snippet: model.snippet(for: r))
+            .tag(DashboardSelection.recording(r.url))
+            .contextMenu { RecordingActions(model: model, recording: r) }
+            // 拖的是路徑文字不是檔案：檔案的話整個視窗會當成要匯入
+            .draggable(r.url.path)
+    }
+
+    private func drop(_ paths: [String], into group: String?) -> Bool {
+        let moving = library.recordings.filter { paths.contains($0.url.path) }
+        moving.forEach { model.move($0, to: group) }
+        return !moving.isEmpty
+    }
 
     var body: some View {
         let items = model.visibleRecordings
@@ -136,13 +172,39 @@ private struct SidebarView: View {
                     ForEach(model.linkDownloads) { DownloadRow(download: $0) }
                 }
             }
-            if !items.isEmpty {
-                Section(model.search.isEmpty ? L("錄音", "Recordings") : L("搜尋結果", "Search Results")) {
-                    ForEach(items) { r in
-                        RecordingRow(recording: r, status: library.status[r.url], hasTranscript: model.hasTranscript(r), snippet: model.snippet(for: r))
-                            .tag(DashboardSelection.recording(r.url))
-                            .contextMenu { RecordingActions(model: model, recording: r) }
+            if !model.search.isEmpty {
+                // 搜尋時不分資料夾
+                if !items.isEmpty {
+                    Section(L("搜尋結果", "Search Results")) {
+                        ForEach(items, content: row)
                     }
+                }
+            } else if !items.isEmpty || !library.groups.isEmpty {
+                Section {
+                    ForEach(library.groups, id: \.self) { g in
+                        DisclosureGroup(isExpanded: Binding(get: { !collapsed.contains(g) }, set: { if $0 { collapsed.remove(g) } else { collapsed.insert(g) } })) {
+                            ForEach(items.filter { $0.group == g }, content: row)
+                        } label: {
+                            Label(g, systemImage: "folder")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 2)
+                                .background(target == g ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 4))
+                                .dropDestination(for: String.self) { paths, _ in drop(paths, into: g) } isTargeted: { target = $0 ? g : (target == g ? nil : target) }
+                                .contextMenu {
+                                    Button(L("重新命名…", "Rename…")) { model.renamingGroup = g }
+                                    Button(L("在 Finder 中顯示", "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([library.folder.appendingPathComponent(g)]) }
+                                    Divider()
+                                    Button(L("移到垃圾桶…", "Move to Trash…"), role: .destructive) { model.deletingGroup = g }
+                                }
+                        }
+                    }
+                    ForEach(items.filter { $0.group == nil }, content: row)
+                } header: {
+                    // 拖到這裡＝移出資料夾
+                    Text(L("錄音", "Recordings"))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(target == "" ? Color.accentColor.opacity(0.25) : .clear, in: RoundedRectangle(cornerRadius: 4))
+                        .dropDestination(for: String.self) { paths, _ in drop(paths, into: nil) } isTargeted: { target = $0 ? "" : (target == "" ? nil : target) }
                 }
             }
         }
@@ -151,6 +213,16 @@ private struct SidebarView: View {
             SearchField(text: $model.search, model: model)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 4)
+        }
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Button { model.creatingGroup = true } label: { Label(L("新增資料夾", "New Folder"), systemImage: "folder.badge.plus") }
+                    .buttonStyle(.borderless)
+                    .help(L("新增資料夾，再把錄音拖進去", "New folder — then drag recordings into it"))
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
         }
         .overlay {
             if library.recordings.isEmpty && library.live == nil {
@@ -302,6 +374,16 @@ private struct RecordingActions: View {
         let has = model.hasTranscript(recording)
         Button(L("重新命名…", "Rename…")) { model.renaming = recording }
         Button(L("在 Finder 中顯示", "Show in Finder")) { model.reveal(recording) }
+        let groups = Library.shared.groups.filter { $0 != recording.group }
+        if !groups.isEmpty || recording.group != nil {
+            Menu(L("移到", "Move To")) {
+                ForEach(groups, id: \.self) { g in Button(g) { model.move(recording, to: g) } }
+                if recording.group != nil {
+                    if !groups.isEmpty { Divider() }
+                    Button(L("移出資料夾", "Out of Folder")) { model.move(recording, to: nil) }
+                }
+            }
+        }
         Divider()
         Button(has ? L("重新轉逐字稿…", "Re-transcribe…") : L("轉逐字稿", "Transcribe")) {
             if has { model.retranscribing = recording } else { model.transcribe(recording) }

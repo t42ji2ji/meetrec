@@ -3,10 +3,12 @@ import Foundation
 
 /// 錄音資料夾的內容與操作：列出錄音、排隊轉逐字稿（含進度）、匯入、改名、刪除。畫面只透過這裡動檔案。
 /// 一場錄音一個資料夾：<folder>/<標題>/<標題>.m4a（＋ .srt、.txt、隱藏的逐字稿 json）。
+/// 使用者自己開的分類資料夾多一層：<folder>/<分類>/<標題>/…；根目錄底下沒有音檔的資料夾就是分類。
 @MainActor
 final class Library: ObservableObject {
     static let shared = Library()
-    let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/會議錄音")
+    nonisolated static let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Music/會議錄音")
+    let folder = Library.root
 
     struct Recording: Identifiable, Hashable {
         /// 音檔
@@ -17,6 +19,11 @@ final class Library: ObservableObject {
         /// 這場錄音的資料夾
         var folder: URL { url.deletingLastPathComponent() }
         var title: String { folder.lastPathComponent }
+        /// 放在哪個分類資料夾；直接在根目錄是 nil
+        var group: String? {
+            let parent = folder.deletingLastPathComponent()
+            return parent.standardizedFileURL == Library.root.standardizedFileURL ? nil : parent.lastPathComponent
+        }
         /// 資料夾開頭的「2026-10-12 10-10 」：留在檔名裡 Finder 才照時間排，畫面上日期另外有顯示，所以只顯示 name
         var datePrefix: String? { title.prefixMatch(of: #/\d{4}-\d{2}-\d{2} \d{2}-\d{2} /#).map { String($0.output) } }
         var name: String {
@@ -41,6 +48,8 @@ final class Library: ObservableObject {
 
     /// 新的在前；不含正在錄的 .aac
     @Published private(set) var recordings: [Recording] = []
+    /// 分類資料夾的名稱，照名稱排；空的也列
+    @Published private(set) var groups: [String] = []
     /// 沒有 entry＝閒置
     @Published private(set) var status: [URL: Status] = [:]
     @Published var live: Live?
@@ -58,17 +67,23 @@ final class Library: ObservableObject {
 
     nonisolated private static let audioTypes: Set = ["m4a", "aac", "mp3", "wav", "aiff", "aif", "caf", "flac"]
     private var watcher: DispatchSourceFileSystemObject?
+    /// 每個分類資料夾各一個，裡面有變動也要重新整理
+    private var groupWatchers: [String: DispatchSourceFileSystemObject] = [:]
 
     private init() {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         reload()
         // 資料夾有變動（Finder 裡改名、刪檔、新錄音）就重新整理
-        let fd = open(folder.path, O_EVTONLY)
+        watcher = watch(folder)
+    }
+
+    private func watch(_ dir: URL) -> DispatchSourceFileSystemObject {
+        let fd = open(dir.path, O_EVTONLY)
         let w = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
         w.setEventHandler { [weak self] in self?.reload() }
         w.setCancelHandler { close(fd) }
         w.resume()
-        watcher = w
+        return w
     }
 
     func reload() {
@@ -80,16 +95,31 @@ final class Library: ObservableObject {
         }
         let live = recordingFile?.standardizedFileURL
         let known = Dictionary(uniqueKeysWithValues: recordings.map { ($0.url, $0) })
-        let dirs = (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? []
-        recordings = dirs
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .compactMap { dir in
-                // 優先跟資料夾同名的音檔
-                let audio = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [])
-                    .filter { Self.audioTypes.contains($0.pathExtension.lowercased()) }
-                    .sorted { a, _ in a.deletingPathExtension().lastPathComponent == dir.lastPathComponent }
-                return audio.first
+        func subdirs(_ dir: URL) -> [URL] {
+            ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: .skipsHiddenFiles)) ?? [])
+                .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        }
+        // 優先跟資料夾同名的音檔
+        func audio(in dir: URL) -> URL? {
+            ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [])
+                .filter { Self.audioTypes.contains($0.pathExtension.lowercased()) }
+                .sorted { a, _ in a.deletingPathExtension().lastPathComponent == dir.lastPathComponent }
+                .first
+        }
+        var found: [URL] = []
+        var groupDirs: [URL] = []
+        for dir in subdirs(folder) {
+            if let a = audio(in: dir) {
+                found.append(a)
+            } else {
+                groupDirs.append(dir)
+                found += subdirs(dir).compactMap(audio)
             }
+        }
+        groups = groupDirs.map(\.lastPathComponent).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        for name in groupWatchers.keys where !groups.contains(name) { groupWatchers.removeValue(forKey: name)?.cancel() }
+        for dir in groupDirs where groupWatchers[dir.lastPathComponent] == nil { groupWatchers[dir.lastPathComponent] = watch(dir) }
+        recordings = found
             .filter { $0.standardizedFileURL != live }
             .map { url in
                 if let r = known[url] { return r }
@@ -199,7 +229,7 @@ final class Library: ObservableObject {
     func rename(audio: URL, to title: String) throws -> URL {
         let title = title.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         let oldFolder = audio.deletingLastPathComponent()
-        let newFolder = folder.appendingPathComponent(title)
+        let newFolder = oldFolder.deletingLastPathComponent().appendingPathComponent(title)
         guard !title.isEmpty, newFolder.lastPathComponent != oldFolder.lastPathComponent else { return audio }
         let fm = FileManager.default
         guard !fm.fileExists(atPath: newFolder.path) else { throw LibraryError.nameTaken(title) }
@@ -212,6 +242,67 @@ final class Library: ObservableObject {
         if let s = status.removeValue(forKey: audio) { status[dest] = s }
         reload()
         return dest
+    }
+
+    /// 搬進分類資料夾；group nil＝搬回根目錄。回傳新的音檔位置
+    @discardableResult
+    func move(_ r: Recording, to group: String?) throws -> URL {
+        guard group != r.group else { return r.url }
+        let parent = group.map { folder.appendingPathComponent($0) } ?? folder
+        let newFolder = parent.appendingPathComponent(r.title)
+        guard !FileManager.default.fileExists(atPath: newFolder.path) else { throw LibraryError.nameTaken(r.name) }
+        try FileManager.default.moveItem(at: r.folder, to: newFolder)
+        let dest = newFolder.appendingPathComponent(r.url.lastPathComponent)
+        if let s = status.removeValue(forKey: r.url) { status[dest] = s }
+        reload()
+        return dest
+    }
+
+    /// 開新的分類資料夾；同名就加編號。回傳實際的名稱
+    @discardableResult
+    func createGroup(_ name: String) throws -> String {
+        let name = Self.clean(name)
+        var candidate = name.isEmpty ? L("新資料夾", "New Folder") : name
+        let base = candidate
+        var n = 2
+        while FileManager.default.fileExists(atPath: folder.appendingPathComponent(candidate).path) {
+            candidate = "\(base) \(n)"
+            n += 1
+        }
+        try FileManager.default.createDirectory(at: folder.appendingPathComponent(candidate), withIntermediateDirectories: false)
+        reload()
+        return candidate
+    }
+
+    /// 回傳新的名稱（沒改就是原本的）
+    @discardableResult
+    func renameGroup(_ group: String, to name: String) throws -> String {
+        let name = Self.clean(name)
+        guard !name.isEmpty, name != group else { return group }
+        let dest = folder.appendingPathComponent(name)
+        guard !FileManager.default.fileExists(atPath: dest.path) else { throw LibraryError.nameTaken(name) }
+        let inside = recordings.filter { $0.group == group }
+        try FileManager.default.moveItem(at: folder.appendingPathComponent(group), to: dest)
+        for r in inside {
+            if let s = status.removeValue(forKey: r.url) {
+                status[dest.appendingPathComponent(r.title).appendingPathComponent(r.url.lastPathComponent)] = s
+            }
+        }
+        reload()
+        return name
+    }
+
+    /// 分類資料夾連同裡面的錄音丟到垃圾桶
+    func deleteGroup(_ group: String) throws {
+        let inside = recordings.filter { $0.group == group }
+        try FileManager.default.trashItem(at: folder.appendingPathComponent(group), resultingItemURL: nil)
+        for r in inside { status[r.url] = nil }
+        reload()
+    }
+
+    /// 檔名不能有 / 和 :
+    private static func clean(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
     }
 
     /// 整個資料夾丟到垃圾桶
@@ -233,7 +324,7 @@ enum LibraryError: Error, CustomStringConvertible {
     case nameTaken(String)
     var description: String {
         switch self {
-        case .nameTaken(let n): return L("已經有叫「\(n)」的錄音", "A recording named “\(n)” already exists")
+        case .nameTaken(let n): return L("那裡已經有叫「\(n)」的錄音或資料夾", "A recording or folder named “\(n)” already exists there")
         }
     }
 }

@@ -31,6 +31,9 @@ final class DashboardModel: ObservableObject {
     @Published var renaming: Library.Recording?
     @Published var deleting: Library.Recording?
     @Published var retranscribing: Library.Recording?
+    @Published var creatingGroup = false
+    @Published var renamingGroup: String?
+    @Published var deletingGroup: String?
     @Published var error: String?
     /// 匯入視窗（拖檔案、選檔案、貼網址）
     @Published var importing = false
@@ -226,6 +229,47 @@ final class DashboardModel: ObservableObject {
         } catch {
             self.error = "\(error)"
         }
+    }
+
+    /// 拖到分類資料夾、或右鍵「移到」；group nil＝移出資料夾
+    func move(_ r: Library.Recording, to group: String?) {
+        if editor?.recording.url == r.url { editor?.flush() }
+        do {
+            let url = try library.move(r, to: group)
+            guard url != r.url else { return }
+            if player.url == r.url { player.moved(to: url) }
+            if selection == .recording(r.url) { selection = .recording(url) }
+        } catch {
+            self.error = "\(error)"
+        }
+    }
+
+    func createGroup(_ name: String) {
+        do { try library.createGroup(name) } catch { self.error = "\(error)" }
+    }
+
+    /// 裡面的錄音路徑都會變，選著的那場跟著換
+    func renameGroup(_ group: String, to name: String) {
+        let selected = selectedRecording.flatMap { $0.group == group ? $0 : nil }
+        if let selected, editor?.recording.url == selected.url { editor?.flush() }
+        do {
+            let renamed = try library.renameGroup(group, to: name)
+            guard let selected, renamed != group else { return }
+            let url = library.folder.appendingPathComponent(renamed).appendingPathComponent(selected.title).appendingPathComponent(selected.url.lastPathComponent)
+            if player.url == selected.url { player.moved(to: url) }
+            selection = .recording(url)
+        } catch {
+            self.error = "\(error)"
+        }
+    }
+
+    func deleteGroup(_ group: String) {
+        if let r = selectedRecording, r.group == group {
+            editor = nil
+            player.unload()
+            selection = nil
+        }
+        do { try library.deleteGroup(group) } catch { self.error = "\(error)" }
     }
 
     func delete(_ r: Library.Recording) {
