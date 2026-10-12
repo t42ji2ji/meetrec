@@ -199,7 +199,7 @@ final class LevelMeter: NSView {
     override var intrinsicContentSize: NSSize { NSSize(width: 23, height: 16) }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.white.setFill()
+        NSColor.systemRed.setFill()
         for (i, w) in weights.enumerated() {
             let h = max(3, bounds.height * w * shown)
             let rect = NSRect(x: CGFloat(i) * 5, y: (bounds.height - h) / 2, width: 3, height: h)
@@ -223,6 +223,8 @@ final class DictationHUD: NSPanel {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
+        // 系統陰影在無邊框視窗外會多一圈明顯的細框
+        hasShadow = false
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         ignoresMouseEvents = true
@@ -256,7 +258,7 @@ final class DictationHUD: NSPanel {
         }
         let stack = NSStackView(views: views)
         stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        stack.edgeInsets = NSEdgeInsets(top: 12, left: 18, bottom: 12, right: 18)
         stack.frame.size = stack.fittingSize
         effect.addSubview(stack)
         let size = NSSize(width: max(stack.frame.width, stack.frame.height), height: stack.frame.height)
