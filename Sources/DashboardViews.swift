@@ -878,9 +878,18 @@ private struct AssistantChatView: View {
                         Label(L("問問這場會議", "Ask About This Meeting"), systemImage: "bubble.left.and.text.bubble.right")
                     } actions: {
                         if chat.kind == .claude {
-                            VStack(spacing: 6) {
+                            LazyVGrid(columns: [GridItem(.fixed(128), spacing: 10), GridItem(.fixed(128))], spacing: 10) {
                                 ForEach(presets, id: \.title) { p in
-                                    Button { send(p.prompt, [], []) } label: { Label(p.title, systemImage: p.icon).frame(minWidth: 140, alignment: .leading) }
+                                    Button { send(p.prompt, [], []) } label: {
+                                        VStack(spacing: 10) {
+                                            Image(systemName: p.icon).font(.system(size: 24)).foregroundStyle(Color.accentColor)
+                                            Text(p.title).font(.callout.weight(.medium)).foregroundStyle(.primary)
+                                        }
+                                        .frame(width: 128, height: 96)
+                                        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
