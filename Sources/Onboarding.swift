@@ -118,6 +118,10 @@ private struct OnboardingView: View {
     @State private var key = TranscriptionService.groq.apiKey ?? ""
     @State private var check: Check = .idle
     @State private var mic = AVCaptureDevice.authorizationStatus(for: .audio)
+    @State private var browserAudio = Permissions.browserAudio
+    /// 讀分頁標題：裝了的瀏覽器全部允許才算好
+    @State private var tabs: Permissions.State = .unknown
+    @State private var askingTabs = false
 
     private enum Check: Equatable { case idle, checking, ok, failed(String) }
 
@@ -150,6 +154,7 @@ private struct OnboardingView: View {
             // 分辨說話者的模型（幾十 MB）不管選哪邊都要，先下載；在哪裡轉錄等使用者選了才存
             models.downloadMissing(only: Models.support)
             if !key.isEmpty { verify() }
+            checkTabs(ask: false)
         }
         .onChange(of: models.progress == nil) { _, idle in
             // 前一批下載完，選了本機的話接著下載語音模型
@@ -157,6 +162,8 @@ private struct OnboardingView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             mic = AVCaptureDevice.authorizationStatus(for: .audio)
+            browserAudio = Permissions.browserAudio
+            checkTabs(ask: false)
         }
     }
 
@@ -366,26 +373,26 @@ private struct OnboardingView: View {
                 Text(L("你的聲音和會議裡其他人分開收，逐字稿才分得出哪句是你說的。",
                        "Your voice is recorded apart from everyone else in the call, so the transcript knows which lines are yours."))
                     .font(.system(size: 17)).foregroundStyle(Palette.muted).frame(maxWidth: 440, alignment: .leading)
-                Group {
-                    switch mic {
-                    case .authorized:
-                        Label(L("麥克風已允許", "Microphone allowed"), systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.speakers[2])
-                    case .notDetermined:
-                        pill(L("允許麥克風", "Allow Microphone")) {
-                            AVCaptureDevice.requestAccess(for: .audio) { _ in
-                                Task { @MainActor in mic = AVCaptureDevice.authorizationStatus(for: .audio) }
-                            }
-                        }
-                    default:
-                        pill(L("到系統設定開啟", "Open System Settings")) {
-                            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)
+                VStack(alignment: .leading, spacing: 14) {
+                    permission(L("麥克風", "Microphone"), L("收你的聲音", "Records your voice"),
+                               mic == .authorized ? .granted : mic == .notDetermined ? .unknown : .denied, settings: "Privacy_Microphone") {
+                        AVCaptureDevice.requestAccess(for: .audio) { _ in
+                            Task { @MainActor in mic = AVCaptureDevice.authorizationStatus(for: .audio) }
                         }
                     }
+                    permission(L("瀏覽器的聲音", "Browser audio"), L("收會議裡其他人的聲音", "Records everyone else in the call"),
+                               browserAudio, settings: "Privacy_AudioCapture") {
+                        Permissions.requestBrowserAudio { Task { @MainActor in browserAudio = Permissions.browserAudio } }
+                    }
+                    if !Permissions.tabBrowsers.isEmpty {
+                        permission(L("讀會議分頁標題", "Meeting tab titles"),
+                                   L("用會議名稱替錄音命名（\(Permissions.tabBrowsers.map(\.name).joined(separator: "、"))）",
+                                     "Names recordings after the meeting (\(Permissions.tabBrowsers.map(\.name).joined(separator: ", ")))"),
+                                   tabs, settings: "Privacy_Automation", busy: askingTabs) { checkTabs(ask: true) }
+                    }
                 }
+                .frame(maxWidth: 460)
                 .padding(.top, 6)
-                Text(L("錄瀏覽器裡的會議時，系統還會詢問「螢幕與系統錄音」的權限。", "When you record a browser meeting, macOS will also ask for Screen & System Audio Recording."))
-                    .font(.system(size: 14)).foregroundStyle(Palette.muted).frame(maxWidth: 440, alignment: .leading)
             }
             Spacer()
             // 兩個聲道：左邊是你，右邊是其他人
@@ -395,6 +402,41 @@ private struct OnboardingView: View {
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    /// 一個權限一行：允許了打勾；沒問過給「允許」；拒絕過只能到系統設定改
+    private func permission(_ title: String, _ detail: String, _ state: Permissions.State, settings: String, busy: Bool = false, allow: @escaping () -> Void) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: state == .granted ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22)).foregroundStyle(state == .granted ? Palette.speakers[2] : Palette.muted)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                Text(detail).font(.system(size: 13)).foregroundStyle(Palette.muted)
+            }
+            Spacer()
+            if busy {
+                ProgressView().controlSize(.small)
+            } else if state == .denied {
+                Button(L("到系統設定開啟", "Open System Settings")) {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?\(settings)")!)
+                }
+            } else if state == .unknown {
+                Button(L("允許", "Allow"), action: allow).buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    /// 每個裝了的瀏覽器都問；ask 的時候沒開的瀏覽器會在背景打開
+    private func checkTabs(ask: Bool) {
+        if ask { askingTabs = true }
+        DispatchQueue.global().async {
+            let states = Permissions.tabBrowsers.map { Permissions.automation($0, ask: ask) }
+            let result: Permissions.State = states.contains(.denied) ? .denied : states.allSatisfy { $0 == .granted } ? .granted : .unknown
+            DispatchQueue.main.async {
+                tabs = result
+                askingTabs = false
+            }
+        }
     }
 
     private func pill(_ title: String, action: @escaping () -> Void) -> some View {
