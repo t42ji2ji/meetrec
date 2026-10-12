@@ -24,6 +24,8 @@ struct DashboardView: View {
         .id(language)
         .navigationTitle("MeetRec")
         .toolbar {
+            // 錄音放最前面、自成一顆，不跟重新轉錄那些混在一起
+            ToolbarItem(placement: .navigation) { RecordButton() }
             ToolbarItem(placement: .navigation) {
                 // 圖示旁邊放 YouTube、Podcast、Spotify 的 logo，一看就知道網址也能匯入
                 Button { model.importing = true } label: {
@@ -37,7 +39,6 @@ struct DashboardView: View {
                 }
                     .help(L("匯入音檔、影片，或 YouTube、Podcast、Spotify 網址", "Import audio, video, or a YouTube, podcast or Spotify link"))
             }
-            ToolbarItem(placement: .primaryAction) { RecordButton() }
             // 放在最外層、一直都在：切換錄音時工具列不用重建
             ToolbarItemGroup(placement: .primaryAction) {
                 let r = model.selectedRecording
@@ -1352,12 +1353,19 @@ private struct RecordButton: View {
 
     var body: some View {
         if library.live == nil {
-            Button { library.startLive() } label: { Label(L("開始錄音", "Start Recording"), systemImage: "record.circle") }
+            Button { library.startLive() } label: { mark(Circle(), "REC") }
                 .help(L("開始錄音：瀏覽器在開會就連會議聲音一起錄，否則只錄麥克風", "Start recording: captures meeting audio too if a browser meeting is active, otherwise just the microphone"))
         } else {
-            Button { library.stopLive() } label: { Label(L("停止並存檔", "Stop and Save"), systemImage: "stop.circle.fill") }
+            Button { library.stopLive() } label: { mark(RoundedRectangle(cornerRadius: 2), "STOP") }
                 .help(L("停止錄音並存檔", "Stop recording and save"))
-                .tint(.red)
         }
+    }
+
+    private func mark(_ shape: some Shape, _ text: String) -> some View {
+        HStack(spacing: 5) {
+            shape.fill(.red).frame(width: 10, height: 10)
+            Text(text).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.red)
+        }
+        .padding(.horizontal, 4)
     }
 }
