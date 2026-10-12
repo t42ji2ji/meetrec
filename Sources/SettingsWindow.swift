@@ -90,18 +90,6 @@ struct SettingsView: View {
                     .onChange(of: askToRecord) { _, v in Settings.askToRecord = v }
                 Toggle(L("錄完自動轉逐字稿", "Transcribe automatically after recording"), isOn: $autoTranscribe)
                     .onChange(of: autoTranscribe) { _, v in Settings.autoTranscribe = v }
-                Toggle(isOn: $dictation) {
-                    Text(L("語音輸入", "Dictation"))
-                    Text(L("按住設定的按鍵說話，放開就貼到目前的視窗。需要輔助使用權限", "Hold the key below and speak; release to paste into the current window. Needs Accessibility permission"))
-                }
-                .onChange(of: dictation) { _, v in Settings.dictation = v; Dictation.shared.update() }
-                if dictation {
-                    LabeledContent(L("按住的按鍵", "Key to hold")) { ShortcutRecorder() }
-                    Picker(L("語音輸入的語言", "Dictation language"), selection: $dictationLanguage) {
-                        ForEach(Settings.TranscriptLanguage.allCases) { Text($0.label).tag($0) }
-                    }
-                    .onChange(of: dictationLanguage) { _, v in Settings.dictationLanguage = v }
-                }
                 LabeledContent(L("錄音資料夾", "Recordings folder")) {
                     HStack {
                         Text(Library.shared.folder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
@@ -294,6 +282,23 @@ struct SettingsView: View {
                 }
             }
             .id("transcription")
+
+            Section {
+                Toggle(L("按住按鍵說話，放開就貼到目前的視窗", "Hold a key and speak; release to paste into the current window"), isOn: $dictation)
+                    .onChange(of: dictation) { _, v in Settings.dictation = v; Dictation.shared.update() }
+                if dictation {
+                    LabeledContent(L("按住的按鍵", "Key to hold")) { ShortcutRecorder() }
+                    Picker(L("語言", "Language"), selection: $dictationLanguage) {
+                        ForEach(Settings.TranscriptLanguage.allCases) { Text($0.label).tag($0) }
+                    }
+                    .onChange(of: dictationLanguage) { _, v in Settings.dictationLanguage = v }
+                }
+            } header: {
+                Text(L("語音輸入", "Dictation"))
+            } footer: {
+                Text(L("轉文字照上面「轉錄」的設定，在本機或雲端。需要輔助使用權限，用來偵測按鍵和貼上。只有幾秒的話自動偵測語言容易判錯，建議指定。",
+                       "Uses the Transcription settings above, on this Mac or in the cloud. Needs Accessibility permission to detect the key and paste. Short clips can fool language detection, so picking one is more reliable."))
+            }
 
             Section {
                 LabeledContent(L("麥克風", "Microphone")) {
