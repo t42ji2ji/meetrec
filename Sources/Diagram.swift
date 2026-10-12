@@ -90,6 +90,7 @@ struct DiagramCard: View {
                     .background(.regularMaterial, in: Circle())
                     .padding(8)
             }
+            .overlay(alignment: .topTrailing) { DownloadButton(url: url).padding(8) }
             .contentShape(Rectangle())
             .onTapGesture { DiagramWindow.show(url) }
             .help(L("放大", "Enlarge"))
@@ -108,7 +109,8 @@ enum DiagramWindow {
                          styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
         w.title = url.deletingPathExtension().lastPathComponent
         w.isReleasedWhenClosed = false
-        w.contentView = NSHostingView(rootView: DiagramWebView(url: url).background(.background))
+        w.contentView = NSHostingView(rootView: DiagramWebView(url: url).background(.background)
+            .overlay(alignment: .topTrailing) { DownloadButton(url: url).padding(12) })
         w.center()
         w.makeKeyAndOrderFront(nil)
         windows[url] = w
@@ -188,6 +190,29 @@ final class DiagramExport: NSObject, WKNavigationDelegate {
         }
         window.close()
         Self.running.removeAll { $0 === self }
+    }
+}
+
+/// 下載按鈕：選 PDF 或 PNG
+struct DownloadButton: View {
+    let url: URL
+
+    var body: some View {
+        Menu {
+            Button(L("存成 PDF…", "Save as PDF…")) { DiagramExport.run(url, as: .pdf) }
+            Button(L("存成 PNG…", "Save as PNG…")) { DiagramExport.run(url, as: .png) }
+        } label: {
+            Image(systemName: "arrow.down.to.line")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .background(.regularMaterial, in: Circle())
+                .contentShape(Circle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(L("下載", "Download"))
     }
 }
 
