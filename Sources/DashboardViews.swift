@@ -696,6 +696,11 @@ private struct AssistantPanel: View {
     @AppStorage("assistantModel.codex") private var codexModel = ""
 
     var body: some View {
+        // 撐滿整個高度：提示畫面（例如這場還沒有逐字稿）只有內容那麼高的話，分隔線會只畫到一半
+        panel.frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder private var panel: some View {
         let kinds = model.assistantKinds
         if model.assistants == nil {
             ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
