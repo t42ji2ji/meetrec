@@ -217,13 +217,16 @@ final class DictationHUD: NSPanel {
     }
 
     private let effect = NSVisualEffectView()
+    private let shadowView = NSView()
     private var autoHide: DispatchWorkItem?
+    /// 視窗四周留給陰影的透明邊
+    private let pad: CGFloat = 16
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isOpaque = false
         backgroundColor = .clear
-        // 系統陰影在無邊框視窗外會多一圈明顯的細框
+        // 系統陰影在無邊框視窗外會多一圈明顯的細框，陰影自己畫
         hasShadow = false
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -233,7 +236,15 @@ final class DictationHUD: NSPanel {
         effect.state = .active
         effect.wantsLayer = true
         effect.layer?.masksToBounds = true
-        contentView = effect
+        shadowView.wantsLayer = true
+        shadowView.layer?.shadowColor = NSColor.black.cgColor
+        shadowView.layer?.shadowOpacity = 0.3
+        shadowView.layer?.shadowRadius = 8
+        shadowView.layer?.shadowOffset = CGSize(width: 0, height: -3)
+        let container = NSView()
+        container.addSubview(shadowView)
+        container.addSubview(effect)
+        contentView = container
     }
 
     func show(_ state: State) {
@@ -264,9 +275,14 @@ final class DictationHUD: NSPanel {
         let size = NSSize(width: max(stack.frame.width, stack.frame.height), height: stack.frame.height)
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
         let f = screen.visibleFrame
-        setFrame(NSRect(x: (f.midX - size.width / 2).rounded(), y: (f.minY + f.height * 0.08).rounded(), width: size.width, height: size.height), display: false)
+        setFrame(NSRect(x: (f.midX - size.width / 2).rounded() - pad, y: (f.minY + f.height * 0.08).rounded() - pad,
+                        width: size.width + pad * 2, height: size.height + pad * 2), display: false)
+        let capsule = NSRect(x: pad, y: pad, width: size.width, height: size.height)
+        effect.frame = capsule
+        shadowView.frame = capsule
         stack.setFrameOrigin(NSPoint(x: (size.width - stack.frame.width) / 2, y: 0))
         effect.layer?.cornerRadius = size.height / 2
+        shadowView.layer?.shadowPath = CGPath(roundedRect: shadowView.bounds, cornerWidth: size.height / 2, cornerHeight: size.height / 2, transform: nil)
         autoHide?.cancel()
         alphaValue = 1
         orderFrontRegardless()
