@@ -18,7 +18,10 @@ final class Onboarding {
 
     func show() {
         if window == nil {
-            let w = EditingWindow(contentViewController: NSHostingController(rootView: OnboardingView { [weak self] in self?.finish() }))
+            let host = NSHostingController(rootView: OnboardingView { [weak self] in self?.finish() })
+            // 大小由下面固定，不讓 SwiftUI 排版完再把視窗撐高 32pt（標題列），置中才準
+            host.sizingOptions = []
+            let w = EditingWindow(contentViewController: host)
             w.title = L("歡迎使用 MeetRec", "Welcome to MeetRec")
             // 不要視窗的樣子：沒有標題列、沒有紅綠燈，整片都是內容，拖哪裡都能移動
             w.styleMask = [.titled, .fullSizeContentView]
@@ -27,7 +30,11 @@ final class Onboarding {
             w.isMovableByWindowBackground = true
             w.backgroundColor = .black
             w.isReleasedWhenClosed = false
-            w.center()
+            // 不用 center()：它會故意偏上
+            w.setContentSize(NSSize(width: 960, height: 640))
+            if let screen = NSScreen.main?.visibleFrame {
+                w.setFrameOrigin(NSPoint(x: screen.midX - 480, y: screen.midY - 320))
+            }
             window = w
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -130,11 +137,13 @@ private struct OnboardingView: View {
                                     removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity)))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(.horizontal, 64)
-            .padding(.top, 64)
+            .padding(.top, 96)
             .padding(.bottom, 110)
             footer
         }
         .frame(width: 960, height: 640)
+        // 標題列是透明的，不讓 SwiftUI 再替它多留 32pt：視窗才會剛好 960×640，置中算得準
+        .ignoresSafeArea()
         .preferredColorScheme(.dark)
         .tint(Palette.speakers[0])
         .onAppear {
@@ -188,6 +197,7 @@ private struct OnboardingView: View {
                     .opacity(blocked ? 0.35 : 1)
             }
             .buttonStyle(.plain)
+            .focusEffectDisabled()
             .keyboardShortcut(.defaultAction)
             .disabled(blocked)
         }
