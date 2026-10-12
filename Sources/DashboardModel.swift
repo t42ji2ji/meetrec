@@ -50,7 +50,10 @@ final class DashboardModel: ObservableObject {
     /// Library.status 的副本：畫面只看這個，不直接觀察 Library（錄音中每秒更新的 live 不會讓右邊整個重畫）
     @Published private(set) var status: [URL: Library.Status] = [:]
     /// 右邊的 AI 對話欄（⌘E）
-    @Published var chatOpen = false
+    /// 預設打開；關掉的話記住
+    @Published var chatOpen = UserDefaults.standard.object(forKey: "chatOpen") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(chatOpen, forKey: "chatOpen") }
+    }
     /// 本機找到的 Claude Code／Codex；還沒偵測完是 nil
     @Published private(set) var assistants: AssistantCLI.Found?
     private var chats: [String: AssistantChat] = [:]
@@ -301,13 +304,19 @@ final class DashboardModel: ObservableObject {
     }
 
     /// 送出問題；第一句會附上逐字稿（含還沒存檔的修改）
-    func ask(_ question: String, images: [Data], in chat: AssistantChat, about r: Library.Recording, model: String?) {
+    /// refs：用 @ 附上的其他場錄音，逐字稿跟著這一句送出
+    func ask(_ question: String, images: [Data], refs: [Library.Recording], in chat: AssistantChat, about r: Library.Recording, model: String?) {
         guard let found = assistants, let tool = found.tools[chat.kind] else { return }
-        chat.send(question, images: images, transcript: { [weak self] in
-            guard let self else { return nil }
-            let t = editor?.recording.url == r.url ? editor?.transcript : transcript(for: r.url)
-            return t.map { "\(r.name)（\(r.dateText)）\n\n" + $0.txt() }
+        let context = refs.compactMap { ref in transcriptText(ref).map { "<transcript>\n\($0)</transcript>" } }.joined(separator: "\n\n")
+        chat.send(question, images: images, refs: refs.map(\.name), context: context, transcript: { [weak self] in
+            self?.transcriptText(r)
         }, model: model, tool: tool, path: found.path)
+    }
+
+    /// 給 AI 的逐字稿：標題、日期加內文。正在編輯的那場用編輯中的版本
+    private func transcriptText(_ r: Library.Recording) -> String? {
+        let t = editor?.recording.url == r.url ? editor?.transcript : transcript(for: r.url)
+        return t.map { "\(r.name)（\(r.dateText)）\n\n" + $0.txt() }
     }
 
     static let importTypes: [UTType] = [.audio, .movie]

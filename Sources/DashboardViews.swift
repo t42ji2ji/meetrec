@@ -638,7 +638,8 @@ private struct AssistantPanel: View {
             let chat = model.chat(for: r, kind: kind)
             let modelID = kind == .claude ? $claudeModel : $codexModel
             AssistantChatView(chat: chat, kinds: kinds, kind: $preferred, modelID: modelID,
-                              send: { model.ask($0, images: $1, in: chat, about: r, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue) },
+                              others: model.library.recordings.filter { $0.url != r.url && model.hasTranscript($0) },
+                              send: { model.ask($0, images: $1, refs: $2, in: chat, about: r, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue) },
                               reset: { model.resetChat(for: r, kind: kind) })
                 .id(ObjectIdentifier(chat))
         } else {
@@ -652,11 +653,17 @@ private struct AssistantChatView: View {
     let kinds: [AssistantKind]
     @Binding var kind: AssistantKind
     @Binding var modelID: String
-    let send: (String, [Data]) -> Void
+    /// 可以用 @ 引用的其他場（有逐字稿的）
+    let others: [Library.Recording]
+    let send: (String, [Data], [Library.Recording]) -> Void
     let reset: () -> Void
     @State private var draft = ""
     /// 還沒送出的圖
     @State private var images: [Data] = []
+    /// 用 @ 引用、還沒送出的其他場
+    @State private var refs: [Library.Recording] = []
+    /// @ 選單裡反白的那一個
+    @State private var pick = 0
     @State private var dropping = false
     @State private var pasteMonitor: Any?
     /// 剛複製的那則回覆，按鈕短暫變成打勾
@@ -710,6 +717,49 @@ private struct AssistantChatView: View {
                 }
             }
             VStack(alignment: .leading, spacing: 6) {
+                let found = matches
+                if !found.isEmpty {
+                    // 打 @ 跳出來的錄音清單：上下鍵選、Return 或點一下加入
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(found.enumerated()), id: \.element.url) { i, r in
+                            Button { choose(r) } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "doc.text").foregroundStyle(.secondary)
+                                    Text(r.name).lineLimit(1)
+                                    Spacer(minLength: 8)
+                                    Text(r.dateText).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .contentShape(Rectangle())
+                                .background(i == min(pick, found.count - 1) ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                    Divider()
+                }
+                if !refs.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(refs, id: \.url) { r in
+                                HStack(spacing: 4) {
+                                    Image(systemName: "doc.text")
+                                    Text(r.name).lineLimit(1)
+                                    Button { refs.removeAll { $0.url == r.url } } label: { Image(systemName: "xmark.circle.fill") }
+                                        .foregroundStyle(.secondary)
+                                        .help(L("移除", "Remove"))
+                                }
+                                .font(.callout)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.quaternary, in: Capsule())
+                                .help(r.dateText)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                }
                 if !images.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -732,11 +782,14 @@ private struct AssistantChatView: View {
                     Button(action: pickImages) { Image(systemName: "photo.badge.plus").font(.system(size: 15)).foregroundStyle(.secondary) }
                         .help(L("加入圖片（也可以直接拖進來）", "Add Images (or drag them in)"))
                         .padding(.bottom, 3)
-                    TextField(L("問點什麼…", "Ask something…"), text: $draft, axis: .vertical)
+                    TextField(L("問點什麼…（@ 引用其他場）", "Ask something… (@ to add another meeting)"), text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
                         .lineLimit(1...8)
                         .focused($focused)
                         .onSubmit(submit)
+                        .onChange(of: mention) { _, _ in pick = 0 }
+                        .onKeyPress(.downArrow) { move(1) }
+                        .onKeyPress(.upArrow) { move(-1) }
                         .padding(.vertical, 3)
                     if chat.running {
                         Button { chat.stop() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 20)).foregroundStyle(.secondary) }
@@ -789,11 +842,38 @@ private struct AssistantChatView: View {
     }
 
     private func submit() {
+        // @ 選單開著的時候 Return 是選那一場
+        let found = matches
+        if !found.isEmpty { return choose(found[min(pick, found.count - 1)]) }
         let q = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty || !images.isEmpty, !chat.running else { return }
         draft = ""
-        send(q, images)
+        send(q, images, refs)
         images = []
+        refs = []
+    }
+
+    /// 游標前正在打的「@關鍵字」；沒在打就是 nil。中文輸入法打出來的是全形 ＠
+    private var mention: Substring? { draft.firstMatch(of: #/(?:^|\s)[@＠]([^\s@＠]*)$/#)?.1 }
+
+    private var matches: [Library.Recording] {
+        guard let q = mention else { return [] }
+        return Array(others.filter { r in !refs.contains { $0.url == r.url } && (q.isEmpty || r.name.localizedStandardContains(q)) }.prefix(6))
+    }
+
+    private func choose(_ r: Library.Recording) {
+        refs.append(r)
+        if let m = draft.firstMatch(of: #/[@＠][^\s@＠]*$/#) { draft.removeSubrange(m.range) }
+        pick = 0
+        // 點清單選的話焦點會跑掉，拉回來接著打
+        focused = true
+    }
+
+    private func move(_ d: Int) -> KeyPress.Result {
+        let n = matches.count
+        guard n > 0 else { return .ignored }
+        pick = (min(pick, n - 1) + d + n) % n
+        return .handled
     }
 
     /// Finder 複製的圖檔，或截圖、瀏覽器「複製圖片」的圖片本身；剪貼簿有文字（例如網頁上連字帶圖複製）就照常貼文字
@@ -907,6 +987,13 @@ private struct AssistantChatView: View {
         switch m.role {
         case .user:
             VStack(alignment: .trailing, spacing: 4) {
+                if let refs = m.refs {
+                    ForEach(refs, id: \.self) { name in
+                        Label(name, systemImage: "doc.text").font(.callout).lineLimit(1)
+                            .padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.quaternary, in: Capsule())
+                    }
+                }
                 if !m.images.isEmpty {
                     HStack(spacing: 4) {
                         ForEach(Array(m.images.enumerated()), id: \.offset) { Thumbnail(data: $1, size: 72) }

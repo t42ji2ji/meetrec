@@ -83,7 +83,9 @@ final class AssistantChat: ObservableObject {
         var text: String
         /// 附的圖，已轉成 JPEG
         var images: [Data] = []
-        private enum CodingKeys: CodingKey { case role, text, images }
+        /// 用 @ 附上的其他場錄音名稱（只用來顯示；逐字稿在送出時就放進 prompt 了）
+        var refs: [String]? = nil
+        private enum CodingKeys: CodingKey { case role, text, images, refs }
     }
 
     private struct Saved: Codable {
@@ -123,16 +125,17 @@ final class AssistantChat: ObservableObject {
         try? FileManager.default.removeItem(at: file)
     }
 
-    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編。"
+    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編。使用者也可能附上其他場會議的逐字稿當參考，每份開頭有標題和日期，提到時要講清楚是哪一場。"
 
-    func send(_ question: String, images: [Data], transcript: () -> String?, model: String?, tool: URL, path: String) {
+    /// context：這一句另外附上的其他場逐字稿
+    func send(_ question: String, images: [Data], refs: [String], context: String, transcript: () -> String?, model: String?, tool: URL, path: String) {
         guard !running else { return }
-        var prompt = question
+        var prompt = context.isEmpty ? question : "\(context)\n\n\(question)"
         if session == nil {
             guard let t = transcript() else { return }
-            prompt = (kind == .codex ? Self.instructions + "\n\n" : "") + "<transcript>\n\(t)</transcript>\n\n\(question)"
+            prompt = (kind == .codex ? Self.instructions + "\n\n" : "") + "<transcript>\n\(t)</transcript>\n\n\(prompt)"
         }
-        messages.append(Message(role: .user, text: question, images: images))
+        messages.append(Message(role: .user, text: question, images: images, refs: refs.isEmpty ? nil : refs))
 
         var args: [String]
         var input = Data(prompt.utf8)
