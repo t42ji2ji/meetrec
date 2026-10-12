@@ -28,4 +28,16 @@ if [ ! -x vendor/bin/sherpa-diarize ]; then
   # app 裡 dylib 放 Contents/Frameworks
   install_name_tool -add_rpath @executable_path/../Frameworks vendor/bin/sherpa-diarize 2>/dev/null
 fi
+# AI 側欄畫圖用的 diagram-design skill（MIT），以 plugin 形式給 claude --plugin-dir。
+# 只留規則、模板和預設功能會用到的幾種範例；Python 腳本用不到（側欄不開 Bash）。樣式表編譯時換成 Resources/diagram-design/style-guide.md
+DD=7a2e22170ee838e859d8142ba825d83f8b6375e6
+if [ ! -f vendor/diagram-design/skills/diagram-design/SKILL.md ]; then
+  [ -d vendor/src/diagram-design-$DD ] || curl -fL --retry 5 https://github.com/cathrynlavery/diagram-design/archive/$DD.tar.gz | tar xz -C vendor/src
+  S=vendor/src/diagram-design-$DD/skills/diagram-design; T=vendor/diagram-design/skills/diagram-design
+  rm -rf vendor/diagram-design && mkdir -p vendor/diagram-design/.claude-plugin $T/assets
+  cp vendor/src/diagram-design-$DD/.claude-plugin/plugin.json vendor/diagram-design/.claude-plugin/
+  cp -R $S/SKILL.md $S/references $T/
+  cp $S/assets/template*.html $S/assets/icons.html $T/assets/
+  for t in dependency tree timeline flowchart kanban; do cp $S/assets/example-$t.html $S/assets/example-$t-dark.html $T/assets/; done
+fi
 ls -la vendor/bin

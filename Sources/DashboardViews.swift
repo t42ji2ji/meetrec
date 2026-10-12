@@ -792,7 +792,17 @@ private struct AssistantChatView: View {
             }
             .overlay {
                 if chat.messages.isEmpty {
-                    ContentUnavailableView(L("問問這場會議", "Ask About This Meeting"), systemImage: "bubble.left.and.text.bubble.right")
+                    ContentUnavailableView {
+                        Label(L("問問這場會議", "Ask About This Meeting"), systemImage: "bubble.left.and.text.bubble.right")
+                    } actions: {
+                        if chat.kind == .claude {
+                            VStack(spacing: 6) {
+                                ForEach(presets, id: \.title) { p in
+                                    Button { send(p.prompt, [], []) } label: { Label(p.title, systemImage: p.icon).frame(minWidth: 140, alignment: .leading) }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             ForEach(chat.approvals) { approvalCard($0) }
@@ -862,6 +872,21 @@ private struct AssistantChatView: View {
                     Button(action: pickImages) { Image(systemName: "photo.badge.plus").font(.system(size: 15)).foregroundStyle(.secondary) }
                         .help(L("加入圖片（也可以直接拖進來）", "Add Images (or drag them in)"))
                         .padding(.bottom, 3)
+                    if chat.kind == .claude {
+                        Menu {
+                            ForEach(presets, id: \.title) { p in
+                                Button { send(p.prompt, [], []) } label: { Label(p.title, systemImage: p.icon) }
+                            }
+                        } label: {
+                            Image(systemName: "chart.bar.doc.horizontal").font(.system(size: 15)).foregroundStyle(.secondary)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .disabled(chat.running)
+                        .help(L("畫圖", "Draw a Diagram"))
+                        .padding(.bottom, 3)
+                    }
                     TextField(L("問點什麼…（@ 引用其他場）", "Ask something… (@ to add another meeting)"), text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
                         .lineLimit(1...8)
@@ -1083,14 +1108,32 @@ private struct AssistantChatView: View {
         .padding(.top, 8)
     }
 
-    /// 回覆中的點點，用工具時旁邊寫是哪個
-    private var working: some View {
+    /// 回覆中的點點，用工具時旁邊寫是哪個；開始吐圖表 HTML 之後寫畫圖中
+    private func working(drawing: Bool) -> some View {
         HStack(spacing: 8) {
             TypingDots()
-            if let a = chat.activity {
+            if drawing {
+                Text(L("畫圖中…", "Drawing…")).font(.callout).foregroundStyle(.secondary)
+            } else if let a = chat.activity {
                 Text(L("使用 \(a)", "Using \(a)")).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
         }
+    }
+
+    /// 預設的畫圖功能。diagram-design 是給 claude 的 plugin，所以只有 Claude 有
+    private var presets: [(icon: String, title: String, prompt: String)] {
+        [("point.3.connected.trianglepath.dotted", L("關係圖", "Relationship Map"),
+          L("把這場會議的人物和議題畫成關係圖（dependency 類型）：誰提了什麼、議題之間怎麼關聯。",
+            "Draw this meeting's people and topics as a relationship map (dependency type): who raised what, and how the topics connect.")),
+         ("checklist", L("決策與待辦", "Decisions & To-dos"),
+          L("把這場會議的決策和待辦畫成看板（kanban 類型）：欄位分成已決定、待辦（標出負責人）、還沒解決。",
+            "Draw this meeting's decisions and to-dos as a kanban board: columns for decided, to-do (with owners), and unresolved.")),
+         ("calendar.day.timeline.left", L("時間軸", "Timeline"),
+          L("把這場會議的討論順序或提到的時程畫成時間軸（timeline 類型；如果主要是流程步驟就用 flowchart）。",
+            "Draw the order of discussion or the dates mentioned in this meeting as a timeline (use a flowchart if it is mostly process steps).")),
+         ("brain", L("心智圖", "Mind Map"),
+          L("把這場會議的內容畫成心智圖（tree 類型）：中心是會議主題，往外分出主要議題，再分出重點。",
+            "Draw this meeting as a mind map (tree type): the meeting's subject in the center, main topics branching out, key points under each."))]
     }
 
     @ViewBuilder private func message(_ m: AssistantChat.Message) -> some View {
@@ -1121,23 +1164,30 @@ private struct AssistantChatView: View {
             .padding(.leading, 40)
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
-            VStack(alignment: .leading, spacing: 2) {
-                Group {
-                    if m.text.isEmpty {
-                        working
-                    } else {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ReplyText(text: Self.linked(m.text))
-                            // 已經吐出一段但還沒講完（例如 codex 一段一段回），點點留著表示還在想
-                            if chat.running, m.id == chat.messages.last?.id { working }
+            let live = chat.running && m.id == chat.messages.last?.id
+            // 圖表的 HTML 區塊回完才會取出存檔，串流中先藏起來
+            let fence = m.text.range(of: "```" + AssistantChat.diagramFence)
+            let text = fence.map { m.text[..<$0.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines) } ?? m.text
+            VStack(alignment: .leading, spacing: 6) {
+                if !text.isEmpty || live {
+                    Group {
+                        if text.isEmpty {
+                            working(drawing: fence != nil)
+                        } else {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ReplyText(text: Self.linked(text))
+                                // 已經吐出一段但還沒講完（例如 codex 一段一段回），點點留著表示還在想
+                                if live { working(drawing: fence != nil) }
+                            }
                         }
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                if let d = m.diagram { DiagramCard(url: chat.diagramURL(d)) }
                 // 講完才給複製，複製的是原始 markdown
-                if !m.text.isEmpty, !(chat.running && m.id == chat.messages.last?.id) {
+                if !m.text.isEmpty, !live {
                     Button {
                         NSPasteboard.general.clearContents()
                         // codex 的檔案引用標記換成路徑，貼到別處才看得懂

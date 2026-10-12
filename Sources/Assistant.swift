@@ -85,7 +85,9 @@ final class AssistantChat: ObservableObject {
         var images: [Data] = []
         /// 用 @ 附上的其他場錄音名稱（只用來顯示；逐字稿在送出時就放進 prompt 了）
         var refs: [String]? = nil
-        private enum CodingKeys: CodingKey { case role, text, images, refs }
+        /// 這則回覆畫的圖：錄音資料夾裡的 HTML 檔名（資料夾會改名，所以不存完整路徑）
+        var diagram: String? = nil
+        private enum CodingKeys: CodingKey { case role, text, images, refs, diagram }
     }
 
     private struct Saved: Codable {
@@ -138,7 +140,13 @@ final class AssistantChat: ObservableObject {
         try? FileManager.default.removeItem(at: file)
     }
 
-    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編；需要逐字稿以外的資料時可以用工具去查。使用者也可能附上其他場會議的逐字稿當參考，每份開頭有標題和日期，提到時要講清楚是哪一場。"
+    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編；需要逐字稿以外的資料時可以用工具去查。使用者也可能附上其他場會議的逐字稿當參考，每份開頭有標題和日期，提到時要講清楚是哪一場。\n\n使用者要圖表時用 diagram-design skill。你不能寫檔也不能跑指令：跳過所有寫檔、跑腳本、驗證、匯出的步驟，不要問樣式或要不要存 profile。HTML 的顏色要用 CSS 變數，淺色定義在 :root，深色定義在 @media (prefers-color-scheme: dark) 裡，同一個檔案跟著系統外觀切換。先用一兩句話說明這張圖，接著把完整、獨立的 HTML 放在回覆最後一個 ```\(diagramFence) 程式碼區塊裡，區塊後面不要再寫任何東西，也不要叫使用者開檔案。"
+
+    /// 回覆裡圖表 HTML 的程式碼區塊標記，回完由 app 取出存檔
+    static let diagramFence = "html meetrec-diagram"
+
+    /// 打包在 app 裡的 diagram-design（claude --plugin-dir 用）
+    private static let diagramPlugin = Bundle.main.resourceURL?.appendingPathComponent("diagram-design")
 
     /// context：這一句另外附上的其他場逐字稿
     func send(_ question: String, images: [Data], refs: [String], context: String, transcript: () -> String?, model: String?, tool: URL, path: String) {
@@ -161,6 +169,7 @@ final class AssistantChat: ObservableObject {
                     "--tools", "Read,Grep,Glob,WebFetch,WebSearch,Skill,ToolSearch",
                     "--permission-mode", "default", "--permission-prompt-tool", "stdio",
                     "--append-system-prompt", Self.instructions]
+            if let dir = Self.diagramPlugin, FileManager.default.fileExists(atPath: dir.path) { args += ["--plugin-dir", dir.path] }
             if let session { args += ["--resume", session] }
             if let model { args += ["--model", model] }
             var content: [[String: Any]] = images.map {
@@ -334,7 +343,8 @@ final class AssistantChat: ObservableObject {
         imageFiles = []
         defer { save() }
         guard let i = messages.firstIndex(where: { $0.id == reply }), messages[i].role == .assistant else { return }
-        if messages[i].text.isEmpty {
+        extractDiagram(i)
+        if messages[i].text.isEmpty, messages[i].diagram == nil {
             if ok {
                 messages.remove(at: i)
             } else {
@@ -342,6 +352,24 @@ final class AssistantChat: ObservableObject {
             }
         }
     }
+
+    /// 回覆最後的圖表區塊存成錄音資料夾裡的 HTML，對話裡只留說明文字
+    private func extractDiagram(_ i: Int) {
+        let text = messages[i].text
+        guard let open = text.range(of: "```" + Self.diagramFence, options: .backwards),
+              let close = text.range(of: "```", range: open.upperBound..<text.endIndex) else { return }
+        let html = text[open.upperBound..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !html.isEmpty else { return }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH-mm-ss"
+        let name = L("圖表", "Diagram") + " \(f.string(from: Date())).html"
+        guard (try? html.write(to: file.deletingLastPathComponent().appendingPathComponent(name), atomically: true, encoding: .utf8)) != nil else { return }
+        messages[i].text = text[..<open.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        messages[i].diagram = name
+    }
+
+    /// 圖表檔在錄音資料夾裡的位置
+    func diagramURL(_ name: String) -> URL { file.deletingLastPathComponent().appendingPathComponent(name) }
 
     private func save() {
         guard let data = try? JSONEncoder().encode(Saved(session: session, messages: messages)) else { return }

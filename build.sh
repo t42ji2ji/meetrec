@@ -18,9 +18,11 @@ cp Info.plist $APP/Contents/Info.plist
 cp -R Resources/licenses Resources/icons Resources/*.lproj $APP/Contents/Resources/
 swiftc -O -target arm64-apple-macos15.0 Sources/*.swift -o $APP/Contents/MacOS/MeetRec
 # 轉逐字稿、分說話者的輔助程式（./vendor.sh 產生）；簽名要由內往外
-[ -x vendor/bin/whisper-cli ] && [ -x vendor/bin/whisper-vad ] || ./vendor.sh
+[ -x vendor/bin/whisper-cli ] && [ -x vendor/bin/whisper-vad ] && [ -f vendor/diagram-design/skills/diagram-design/SKILL.md ] || ./vendor.sh
 cp vendor/bin/whisper-cli vendor/bin/whisper-vad vendor/bin/sherpa-diarize $APP/Contents/MacOS/
 cp vendor/bin/libonnxruntime.dylib $APP/Contents/Frameworks/
+cp -R vendor/diagram-design $APP/Contents/Resources/
+cp Resources/diagram-design/style-guide.md $APP/Contents/Resources/diagram-design/skills/diagram-design/references/
 codesign --force $SIGN --sign $ID $APP/Contents/Frameworks/libonnxruntime.dylib $APP/Contents/MacOS/whisper-cli $APP/Contents/MacOS/whisper-vad $APP/Contents/MacOS/sherpa-diarize
 codesign --force $SIGN --entitlements MeetRec.entitlements --sign $ID $APP
 codesign --verify --deep --strict $APP
