@@ -394,7 +394,8 @@ private struct RecordingDetail: View {
             Divider()
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
-            PlayerBar(player: model.player, clock: model.player.clock)
+            PlayerBar(player: model.player, clock: model.player.clock,
+                      editor: model.editor.flatMap { $0.recording.url == recording.url ? $0 : nil })
         }
     }
 
@@ -564,6 +565,8 @@ private struct Isolated<Content: View>: NSViewRepresentable {
 private struct PlayerBar: View {
     @ObservedObject var player: DashboardPlayer
     @ObservedObject var clock: DashboardPlayer.Clock
+    /// 有逐字稿才有：進度條照說話的人上色
+    let editor: TranscriptEditor?
     /// 拖曳中的位置；放開才 seek，拖的時候不被播放時間蓋掉
     @State private var dragging: Double?
 
@@ -582,14 +585,14 @@ private struct PlayerBar: View {
             Text(Transcript.clock(dragging ?? clock.time))
                 .monospacedDigit()
                 .frame(minWidth: 44, alignment: .trailing)
-            Slider(value: Binding(get: { dragging ?? clock.time }, set: { dragging = $0 }),
-                   in: 0...max(player.duration, 0.1)) { editing in
-                if !editing, let d = dragging {
-                    player.seek(d)
+            SpeakerTrack(editor: editor, time: dragging ?? clock.time, duration: player.duration) { t, done in
+                if done {
+                    player.seek(t)
                     dragging = nil
+                } else {
+                    dragging = t
                 }
             }
-            .controlSize(.small)
             Text(Transcript.clock(player.duration))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
@@ -609,6 +612,76 @@ private struct PlayerBar: View {
         .padding(.vertical, 10)
         .disabled(player.url == nil)
         .background(.bar)
+    }
+}
+
+/// 播放進度條：每一段照當時說話的人上色，播過的實色、還沒播的淡色，沒人說話的地方灰色。點或拖曳跳到那裡
+private struct SpeakerTrack: View {
+    /// nil＝沒有逐字稿，整條用強調色
+    let editor: TranscriptEditor?
+    let time: Double
+    let duration: Double
+    /// (時間, 放開了沒)
+    let seek: (Double, Bool) -> Void
+
+    var body: some View {
+        if let editor {
+            Colored(editor: editor, time: time, duration: duration, seek: seek)
+        } else {
+            Bar(spans: nil, time: time, duration: duration, seek: seek)
+        }
+    }
+
+    /// 改說話者顏色時要重畫，所以另外包一層盯著 editor
+    private struct Colored: View {
+        @ObservedObject var editor: TranscriptEditor
+        let time: Double
+        let duration: Double
+        let seek: (Double, Bool) -> Void
+
+        var body: some View {
+            Bar(spans: editor.transcript.segments.map { ($0.start, $0.end, editor.color($0.speaker)) }, time: time, duration: duration, seek: seek)
+        }
+    }
+
+    private struct Bar: View {
+        let spans: [(start: Double, end: Double, color: Color)]?
+        let time: Double
+        let duration: Double
+        let seek: (Double, Bool) -> Void
+
+        var body: some View {
+            GeometryReader { geo in
+                let w = geo.size.width, d = max(duration, 0.1)
+                let x = min(max(time / d, 0), 1) * w
+                ZStack(alignment: .leading) {
+                    Canvas { ctx, size in
+                        let bar = CGRect(x: 0, y: (size.height - 6) / 2, width: size.width, height: 6)
+                        let played = CGRect(x: 0, y: bar.minY, width: x, height: bar.height)
+                        ctx.clip(to: Path(roundedRect: bar, cornerRadius: 3))
+                        ctx.fill(Path(bar), with: .color(.secondary.opacity(0.25)))
+                        guard let spans else { return ctx.fill(Path(played), with: .color(.accentColor)) }
+                        for s in spans where s.end > s.start {
+                            ctx.fill(Path(CGRect(x: s.start / d * size.width, y: bar.minY, width: max((s.end - s.start) / d * size.width, 1), height: bar.height)),
+                                     with: .color(s.color))
+                        }
+                        // 還沒播的蓋一層底色變淡；不直接畫半透明色，兩個人同時說話的地方才不會混成別的顏色
+                        ctx.fill(Path(CGRect(x: x, y: bar.minY, width: size.width - x, height: bar.height)),
+                                 with: .color(Color(nsColor: .windowBackgroundColor).opacity(0.6)))
+                    }
+                    Circle()
+                        .fill(.white)
+                        .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+                        .frame(width: 12, height: 12)
+                        .offset(x: x - 6)
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0)
+                    .onChanged { seek(min(max($0.location.x / w, 0), 1) * d, false) }
+                    .onEnded { seek(min(max($0.location.x / w, 0), 1) * d, true) })
+            }
+            .frame(height: 16)
+        }
     }
 }
 
