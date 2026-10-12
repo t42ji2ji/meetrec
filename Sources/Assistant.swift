@@ -374,6 +374,13 @@ final class AssistantChat: ObservableObject {
     /// 圖表檔在錄音資料夾裡的位置
     func diagramURL(_ name: String) -> URL { file.deletingLastPathComponent().appendingPathComponent(name) }
 
+    /// 這場產生過的報告和圖表，新的在前；開新對話不會刪掉
+    var reports: [URL] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: file.deletingLastPathComponent(), includingPropertiesForKeys: [.contentModificationDateKey], options: .skipsHiddenFiles)) ?? []
+        let date = { (u: URL) in (try? u.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast }
+        return files.filter { $0.pathExtension == "html" }.sorted { date($0) > date($1) }
+    }
+
     private func save() {
         guard let data = try? JSONEncoder().encode(Saved(session: session, messages: messages)) else { return }
         try? data.write(to: file, options: .atomic)

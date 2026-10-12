@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 
 /// AI 畫的圖（diagram-design 產生的 HTML），存在錄音資料夾裡。
@@ -92,6 +93,7 @@ struct DiagramCard: View {
             .contentShape(Rectangle())
             .onTapGesture { DiagramWindow.show(url) }
             .help(L("放大", "Enlarge"))
+            .exportMenu(url)
     }
 }
 
@@ -112,6 +114,89 @@ enum DiagramWindow {
         windows[url] = w
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: w, queue: .main) { _ in
             MainActor.assumeIsolated { windows[url] = nil }
+        }
+    }
+}
+
+/// 報告／圖表存成 PDF 或 PNG：在看不到的視窗裡用淺色、桌面寬度排一次整頁，再整頁輸出（PDF 是一張長頁，不分頁）
+@MainActor
+final class DiagramExport: NSObject, WKNavigationDelegate {
+    enum Format { case pdf, png }
+
+    /// 匯出中的，留著參照等它做完
+    private static var running: [DiagramExport] = []
+
+    static func run(_ url: URL, as format: Format) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [format == .pdf ? .pdf : .png]
+        let name = url.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: #" \d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2}$"#, with: "", options: .regularExpression)
+        panel.nameFieldStringValue = name + (format == .pdf ? ".pdf" : ".png")
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        guard panel.runModal() == .OK, let dest = panel.url else { return }
+        let e = DiagramExport(format: format, dest: dest)
+        running.append(e)
+        e.web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+    }
+
+    private let format: Format
+    private let dest: URL
+    private let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1040, height: 800), styleMask: .borderless, backing: .buffered, defer: false)
+    private let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1040, height: 800))
+
+    private init(format: Format, dest: URL) {
+        self.format = format
+        self.dest = dest
+        super.init()
+        web.appearance = NSAppearance(named: .aqua)
+        web.navigationDelegate = self
+        window.isReleasedWhenClosed = false
+        window.contentView = web
+        window.orderBack(nil)
+    }
+
+    func webView(_ web: WKWebView, didFinish navigation: WKNavigation!) {
+        web.evaluateJavaScript("document.documentElement.scrollHeight") { value, _ in
+            let height = max(800, (value as? Double) ?? 800)
+            self.window.setContentSize(NSSize(width: 1040, height: height))
+            web.frame = NSRect(x: 0, y: 0, width: 1040, height: height)
+            // 等它照新尺寸排好再輸出
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.output() }
+        }
+    }
+
+    private func output() {
+        switch format {
+        case .pdf:
+            web.createPDF { self.finish((try? $0.get())) }
+        case .png:
+            let config = WKSnapshotConfiguration()
+            config.rect = web.bounds
+            web.takeSnapshot(with: config) { image, _ in
+                let png = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+                    .flatMap { NSBitmapImageRep(cgImage: $0).representation(using: .png, properties: [:]) }
+                self.finish(png)
+            }
+        }
+    }
+
+    private func finish(_ data: Data?) {
+        if let data, (try? data.write(to: dest)) != nil {
+            NSWorkspace.shared.activateFileViewerSelecting([dest])
+        } else {
+            NSSound.beep()
+        }
+        window.close()
+        Self.running.removeAll { $0 === self }
+    }
+}
+
+extension View {
+    /// 右鍵存成 PDF／PNG
+    func exportMenu(_ url: URL) -> some View {
+        contextMenu {
+            Button(L("存成 PDF…", "Save as PDF…")) { DiagramExport.run(url, as: .pdf) }
+            Button(L("存成 PNG…", "Save as PNG…")) { DiagramExport.run(url, as: .png) }
         }
     }
 }

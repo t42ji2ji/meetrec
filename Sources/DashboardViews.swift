@@ -853,6 +853,20 @@ private struct AssistantChatView: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 Spacer()
+                // 報告類型隨時可選，對話開始後也在
+                if chat.kind == .claude {
+                    Menu {
+                        ForEach(presets, id: \.title) { p in
+                            Button { send(p.prompt, [], []) } label: { Label(p.title, systemImage: p.icon) }
+                        }
+                    } label: {
+                        Label(L("報告", "Report"), systemImage: "doc.richtext")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .disabled(chat.running)
+                    .help(L("產生報告", "Create a Report"))
+                }
                 Button(action: reset) { Image(systemName: "square.and.pencil") }
                     .buttonStyle(.borderless)
                     .help(L("新對話", "New Chat"))
@@ -861,6 +875,32 @@ private struct AssistantChatView: View {
             .padding(.horizontal, 14)
             .frame(height: 40)
             Divider()
+            let reports = chat.reports
+            if !reports.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(reports, id: \.self) { url in
+                            // 檔名後面的時間戳不顯示，滑過去看完整檔名
+                            let name = url.deletingPathExtension().lastPathComponent
+                            Button { DiagramWindow.show(url) } label: {
+                                Label(name.replacingOccurrences(of: #" \d{4}-\d{2}-\d{2} \d{2}-\d{2}-\d{2}$"#, with: "", options: .regularExpression),
+                                      systemImage: "doc.richtext")
+                                    .lineLimit(1)
+                                    .font(.callout)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(.quaternary, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .help(name)
+                            .exportMenu(url)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                }
+                Divider()
+            }
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 10) {
@@ -963,21 +1003,6 @@ private struct AssistantChatView: View {
                     Button(action: pickImages) { Image(systemName: "photo.badge.plus").font(.system(size: 15)).foregroundStyle(.secondary) }
                         .help(L("加入圖片（也可以直接拖進來）", "Add Images (or drag them in)"))
                         .padding(.bottom, 3)
-                    if chat.kind == .claude {
-                        Menu {
-                            ForEach(presets, id: \.title) { p in
-                                Button { send(p.prompt, [], []) } label: { Label(p.title, systemImage: p.icon) }
-                            }
-                        } label: {
-                            Image(systemName: "chart.bar.doc.horizontal").font(.system(size: 15)).foregroundStyle(.secondary)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
-                        .disabled(chat.running)
-                        .help(L("畫圖", "Draw a Diagram"))
-                        .padding(.bottom, 3)
-                    }
                     TextField(L("問點什麼…（@ 引用其他場）", "Ask something… (@ to add another meeting)"), text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
                         .lineLimit(1...8)
