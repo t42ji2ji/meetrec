@@ -57,12 +57,14 @@ enum Transcriber {
         if let mic, let tab, (tabDB.max() ?? -120) > -50 {
             let turns = diarizeInBackground(tab.wav)
             let micDB = levels(mic.pcm)
-            // 麥克風比瀏覽器小聲的句子是旁人或喇叭漏進麥克風的聲音，不是我
-            let me = try recognize(mic, engine: engine) { progress($0 * 0.3) }
-                .filter { micLouder(micDB, tabDB, $0) }
+            let heard = try recognize(tab, engine: engine) { progress($0 * 0.6) }
+            // 麥克風比瀏覽器小聲的句子是旁人或喇叭漏進麥克風的聲音，不是我。
+            // 只跟瀏覽器有人說話的時間比：分頁放著音樂、影片之類沒人講話的聲音時，我的話不能被當成漏音丟掉
+            let speechDB = spoken(tabDB, heard)
+            let me = try recognize(mic, engine: engine) { progress(0.6 + $0 * 0.3) }
+                .filter { micLouder(micDB, speechDB, $0) }
             // 跟我說的話重複的：我的聲音被對方那邊的麥克風（例如同一間的同事）收進去又傳回來
-            let others = try recognize(tab, engine: engine) { progress(0.3 + $0 * 0.6) }
-                .filter { o in !me.contains { echoes(o, of: $0) } }
+            let others = heard.filter { o in !me.contains { echoes(o, of: $0) } }
             let who = label(others, turns: try turns.wait(), prefix: "them", single: L("對方", "Them"))
             t = Transcript(segments: me.map { .init(start: $0.start, end: $0.end, speaker: "me", text: $0.text) } + who.segments,
                            speakers: who.names.merging(["me": L("我", "Me")]) { a, _ in a })
@@ -207,6 +209,16 @@ enum Transcriber {
             let e = frame.reduce(0) { $0 + Double($1 * $1) } / Double(frame.count)
             return 10 * log10(e + 1e-12)
         }
+    }
+
+    /// 只留瀏覽器聲道轉出句子的時間（前後各 0.5 秒）的音量，其他時間當作沒聲音
+    private static func spoken(_ db: [Double], _ lines: [Line]) -> [Double] {
+        var out = [Double](repeating: -120, count: db.count)
+        for l in lines {
+            let a = max(0, Int((l.start - 0.5) * 10)), b = min(db.count, Int((l.end + 0.5) * 10))
+            if a < b { out.replaceSubrange(a..<b, with: db[a..<b]) }
+        }
+        return out
     }
 
     /// 只比一句裡麥克風最大聲的那一半時間：whisper（英文尤其常見）會把我前後兩句接成一句、中間跨過對方講話，
