@@ -143,10 +143,27 @@ enum Settings {
         set { defaults.set(newValue, forKey: "translationModel") }
     }
 
-    /// 語音輸入：按住右 Option 說話，放開貼到目前的視窗
+    /// 語音輸入：按住設定的按鍵說話，放開貼到目前的視窗
     static var dictation: Bool {
         get { defaults.bool(forKey: "dictation") }
         set { defaults.set(newValue, forKey: "dictation") }
+    }
+
+    /// 語音輸入的語言：只有幾秒的話自動偵測容易判錯
+    static var dictationLanguage: TranscriptLanguage {
+        get { defaults.string(forKey: "dictationLanguage").flatMap(TranscriptLanguage.init) ?? .auto }
+        set { defaults.set(newValue.rawValue, forKey: "dictationLanguage") }
+    }
+
+    static var dictationKey: Shortcut {
+        get {
+            guard let code = defaults.object(forKey: "dictationKey") as? Int else { return .standard }
+            return Shortcut(keyCode: UInt16(code), modifiers: .init(rawValue: UInt(defaults.integer(forKey: "dictationModifiers"))))
+        }
+        set {
+            defaults.set(Int(newValue.keyCode), forKey: "dictationKey")
+            defaults.set(Int(newValue.modifiers.rawValue), forKey: "dictationModifiers")
+        }
     }
 
     /// 錄完自動轉逐字稿

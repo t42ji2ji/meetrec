@@ -91,15 +91,15 @@ enum Transcriber {
         let pcm = try Media.decode16k(audio)[0]
         try Media.writeWav(pcm, to: wav)
         // 英文句子之間要空格，中文不用
-        return try recognize((wav, pcm), engine: engine) { _ in }.map(\.text).reduce("") { a, b in
+        return try recognize((wav, pcm), engine: engine, language: Settings.dictationLanguage) { _ in }.map(\.text).reduce("") { a, b in
             a.last?.isASCII == true && b.first?.isASCII == true ? a + " " + b : a + b
         }
     }
 
-    private static func recognize(_ audio: (wav: URL, pcm: [Float]), engine: Engine, progress: @escaping (Double) -> Void) throws -> [Line] {
+    private static func recognize(_ audio: (wav: URL, pcm: [Float]), engine: Engine, language: Settings.TranscriptLanguage = Settings.transcriptLanguage, progress: @escaping (Double) -> Void) throws -> [Line] {
         let model: Models.Model
         switch engine {
-        case .cloud(let service, let id): return try CloudTranscriber.recognize(audio.pcm, wav: audio.wav, service: service, model: id, progress: progress)
+        case .cloud(let service, let id): return try CloudTranscriber.recognize(audio.pcm, wav: audio.wav, service: service, model: id, language: language, progress: progress)
         case .local(let m): model = m
         }
         let out = audio.wav.deletingPathExtension()
@@ -116,7 +116,7 @@ enum Transcriber {
             progress(min(p, 1))
         }
         // VAD 先剪掉沒人講話的段落，不然 whisper 會在靜音裡編出「(電話響起)」之類的字
-        var args = ["-m", model.path, "-l", Settings.transcriptLanguage.rawValue, "--vad", "-vm", vadModel, "-np", "-pp", "-oj", "-of", out.path]
+        var args = ["-m", model.path, "-l", language.rawValue, "--vad", "-vm", vadModel, "-np", "-pp", "-oj", "-of", out.path]
         // 常用詞每一段都帶著，不然只有開頭 30 秒看得到
         if let prompt = Settings.vocabularyPrompt { args += ["--prompt", prompt, "--carry-initial-prompt"] }
         try run(whisper, args + [audio.wav.path], onStdout: { line in

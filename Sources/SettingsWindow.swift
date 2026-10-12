@@ -55,6 +55,7 @@ struct SettingsView: View {
     @State private var askToRecord = Settings.askToRecord
     @State private var autoTranscribe = Settings.autoTranscribe
     @State private var dictation = Settings.dictation
+    @State private var dictationLanguage = Settings.dictationLanguage
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var mic = AVCaptureDevice.authorizationStatus(for: .audio)
     @State private var confirmDelete = false
@@ -91,9 +92,16 @@ struct SettingsView: View {
                     .onChange(of: autoTranscribe) { _, v in Settings.autoTranscribe = v }
                 Toggle(isOn: $dictation) {
                     Text(L("語音輸入", "Dictation"))
-                    Text(L("按住右 Option 說話，放開就貼到目前的視窗。需要輔助使用權限", "Hold Right Option and speak; release to paste into the current window. Needs Accessibility permission"))
+                    Text(L("按住設定的按鍵說話，放開就貼到目前的視窗。需要輔助使用權限", "Hold the key below and speak; release to paste into the current window. Needs Accessibility permission"))
                 }
                 .onChange(of: dictation) { _, v in Settings.dictation = v; Dictation.shared.update() }
+                if dictation {
+                    LabeledContent(L("按住的按鍵", "Key to hold")) { ShortcutRecorder() }
+                    Picker(L("語音輸入的語言", "Dictation language"), selection: $dictationLanguage) {
+                        ForEach(Settings.TranscriptLanguage.allCases) { Text($0.label).tag($0) }
+                    }
+                    .onChange(of: dictationLanguage) { _, v in Settings.dictationLanguage = v }
+                }
                 LabeledContent(L("錄音資料夾", "Recordings folder")) {
                     HStack {
                         Text(Library.shared.folder.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
@@ -405,6 +413,49 @@ enum About {
 }
 
 /// 常用詞：一個詞一顆標籤，× 刪掉；輸入框按 Return 或打逗號、頓號就加進去。存起來還是一行一個
+/// 按一下再按想用的鍵：單按修飾鍵（按下放開）或組合鍵都可以，Esc 取消
+private struct ShortcutRecorder: View {
+    @State private var key = Settings.dictationKey
+    @State private var monitor: Any?
+    /// 按下還沒放開的修飾鍵；中間沒按別的鍵就放開＝要用這個修飾鍵
+    @State private var candidate: UInt16?
+
+    var body: some View {
+        Button(monitor == nil ? key.name : L("請按下按鍵…", "Press a key…")) {
+            monitor == nil ? record() : stop()
+        }
+        .onDisappear { stop() }
+    }
+
+    private func record() {
+        Dictation.shared.paused = true
+        candidate = nil
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { e in
+            if e.type == .flagsChanged {
+                if let m = Shortcut.modifierKeys[e.keyCode] {
+                    if e.modifierFlags.contains(m.flag) { candidate = e.keyCode } else if candidate == e.keyCode { save(Shortcut(keyCode: e.keyCode)) }
+                }
+                return e
+            }
+            let modifiers = e.modifierFlags.intersection(Shortcut.mask)
+            if e.keyCode == 53, modifiers.isEmpty { stop() } else { save(Shortcut(keyCode: e.keyCode, modifiers: modifiers)) }
+            return nil
+        }
+    }
+
+    private func save(_ k: Shortcut) {
+        Settings.dictationKey = k
+        key = k
+        stop()
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        Dictation.shared.paused = false
+    }
+}
+
 private struct VocabularyField: View {
     @Binding var text: String
     @State private var input = ""

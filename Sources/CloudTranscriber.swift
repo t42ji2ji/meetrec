@@ -80,7 +80,7 @@ enum CloudTranscriber {
     static let pieceSeconds = 600
 
     /// 切成幾段依序上傳，時間接回整段的位置。在 Transcriber.queue 上跑，直接同步等回應
-    static func recognize(_ pcm: [Float], wav: URL, service: TranscriptionService, model: String, progress: (Double) -> Void) throws -> [(start: Double, end: Double, text: String)] {
+    static func recognize(_ pcm: [Float], wav: URL, service: TranscriptionService, model: String, language: Settings.TranscriptLanguage, progress: (Double) -> Void) throws -> [(start: Double, end: Double, text: String)] {
         guard let key = service.apiKey else {
             throw Failure(service: service, message: L("還沒設定 API key，到設定 › 轉錄填入", "No API key yet. Add one in Settings › Transcription."))
         }
@@ -96,7 +96,7 @@ enum CloudTranscriber {
         while start < speech.count {
             let end = cut(speech, after: start)
             let offset = Double(start) / 16000
-            for s in try transcribe(Array(speech[start..<end]), service: service, model: model, key: key) {
+            for s in try transcribe(Array(speech[start..<end]), service: service, model: model, language: language, key: key) {
                 lines.append((original(offset + s.start), original(offset + s.end), s.text))
             }
             start = end
@@ -154,13 +154,13 @@ enum CloudTranscriber {
         let segments: [Segment]?
     }
 
-    private static func transcribe(_ pcm: [Float], service: TranscriptionService, model: String, key: String) throws -> [(start: Double, end: Double, text: String)] {
+    private static func transcribe(_ pcm: [Float], service: TranscriptionService, model: String, language: Settings.TranscriptLanguage, key: String) throws -> [(start: Double, end: Double, text: String)] {
         let wav = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
         try Media.writeWav(pcm, to: wav)
         defer { try? FileManager.default.removeItem(at: wav) }
 
         var fields = ["model": model, "response_format": "verbose_json", "timestamp_granularities[]": "segment"]
-        if Settings.transcriptLanguage != .auto { fields["language"] = Settings.transcriptLanguage.rawValue }
+        if language != .auto { fields["language"] = language.rawValue }
         if let prompt = Settings.vocabularyPrompt { fields["prompt"] = prompt }
         let boundary = UUID().uuidString
         var body = Data()
