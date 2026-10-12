@@ -1204,27 +1204,27 @@ private struct AssistantChatView: View {
         HStack(spacing: 8) {
             TypingDots()
             if drawing {
-                Text(L("畫圖中…", "Drawing…")).font(.callout).foregroundStyle(.secondary)
+                Text(L("製作中…", "Creating…")).font(.callout).foregroundStyle(.secondary)
             } else if let a = chat.activity {
                 Text(L("使用 \(a)", "Using \(a)")).font(.callout).foregroundStyle(.secondary).lineLimit(1)
             }
         }
     }
 
-    /// 預設的畫圖功能。diagram-design 是給 claude 的 plugin，所以只有 Claude 有
+    /// 預設的報告類型：每種是一份完整文件，圖表配在需要的章節裡。diagram-design 是給 claude 的 plugin，所以只有 Claude 有
     private var presets: [(icon: String, title: String, prompt: String)] {
-        [("point.3.connected.trianglepath.dotted", L("關係圖", "Relationship Map"),
-          L("把這場會議的人物和議題畫成關係圖（dependency 類型）：誰提了什麼、議題之間怎麼關聯。",
-            "Draw this meeting's people and topics as a relationship map (dependency type): who raised what, and how the topics connect.")),
-         ("checklist", L("決策與待辦", "Decisions & To-dos"),
-          L("把這場會議的決策和待辦畫成看板（kanban 類型）：欄位分成已決定、待辦（標出負責人）、還沒解決。",
-            "Draw this meeting's decisions and to-dos as a kanban board: columns for decided, to-do (with owners), and unresolved.")),
-         ("calendar.day.timeline.left", L("時間軸", "Timeline"),
-          L("把這場會議的討論順序或提到的時程畫成時間軸（timeline 類型；如果主要是流程步驟就用 flowchart）。",
-            "Draw the order of discussion or the dates mentioned in this meeting as a timeline (use a flowchart if it is mostly process steps).")),
-         ("brain", L("心智圖", "Mind Map"),
-          L("把這場會議的內容畫成心智圖（tree 類型）：中心是會議主題，往外分出主要議題，再分出重點。",
-            "Draw this meeting as a mind map (tree type): the meeting's subject in the center, main topics branching out, key points under each."))]
+        [("doc.richtext", L("會議報告", "Meeting Report"),
+          L("把這場會議寫成一份會議報告。章節：摘要（三到五句）、討論重點（議題和誰提的，用 dependency 類型畫人物與議題的關係）、決策、待辦（負責人和期限，用 kanban 類型分已決定／待辦／未解決）、還沒解決的問題。",
+            "Write this meeting up as a meeting report. Sections: summary (three to five sentences), discussion (topics and who raised them, with a dependency diagram of people and topics), decisions, action items (owners and due dates, with a kanban of decided / to-do / unresolved), open questions.")),
+         ("list.bullet.clipboard", L("行動計畫", "Action Plan"),
+          L("根據這場會議寫一份行動計畫。章節：目標、工作項目（負責人、期限、相依關係）、時程（有日期就用 gantt 類型，只有先後順序就用 timeline 類型）、誰負責什麼（swimlane 或 org-chart 類型擇一）、風險和要先確認的事。會議裡沒講到的負責人或期限標「未定」，不要編。",
+            "Write an action plan from this meeting. Sections: goal, work items (owner, due date, dependencies), schedule (a gantt if there are dates, a timeline if only order), who owns what (swimlane or org chart, pick one), risks and things to confirm first. Mark owners or dates the meeting didn't give as \"TBD\" — don't invent them.")),
+         ("arrow.triangle.branch", L("決策備忘", "Decision Memo"),
+          L("把這場會議討論的決定寫成決策備忘。章節：要決定什麼、背景、選項比較（表格列優缺點；適合的話用 quadrant 類型擺位置）、各方意見、結論或建議（會議沒定案就寫目前傾向和還缺什麼資訊）、下一步。",
+            "Write the decision discussed in this meeting as a decision memo. Sections: the question, background, options compared (a pros/cons table; a quadrant diagram if it fits), who argued what, the conclusion or recommendation (if undecided, the current leaning and what information is missing), next steps.")),
+         ("books.vertical", L("主題整理", "Topic Brief"),
+          L("把這場會議的內容整理成一份主題筆記，給沒參加的人讀懂。章節：一句話總結、概念架構（用 tree 或 nested 類型）、各主題重點（流程類的內容用 flowchart 類型）、提到的名詞和數字、延伸問題。",
+            "Turn this meeting into a topic brief someone who wasn't there can follow. Sections: one-line summary, how the ideas fit together (tree or nested diagram), key points per topic (a flowchart for anything procedural), terms and figures mentioned, follow-up questions."))]
     }
 
     @ViewBuilder private func message(_ m: AssistantChat.Message) -> some View {

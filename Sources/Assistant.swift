@@ -140,7 +140,7 @@ final class AssistantChat: ObservableObject {
         try? FileManager.default.removeItem(at: file)
     }
 
-    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編；需要逐字稿以外的資料時可以用工具去查。使用者也可能附上其他場會議的逐字稿當參考，每份開頭有標題和日期，提到時要講清楚是哪一場。\n\n使用者要圖表時用 diagram-design skill。你不能寫檔也不能跑指令：跳過所有寫檔、跑腳本、驗證、匯出的步驟，不要問樣式或要不要存 profile。HTML 的顏色要用 CSS 變數，淺色定義在 :root，深色定義在 @media (prefers-color-scheme: dark) 裡，同一個檔案跟著系統外觀切換。先用一兩句話說明這張圖，接著把完整、獨立的 HTML 放在回覆最後一個 ```\(diagramFence) 程式碼區塊裡，區塊後面不要再寫任何東西，也不要叫使用者開檔案。"
+    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編；需要逐字稿以外的資料時可以用工具去查。使用者也可能附上其他場會議的逐字稿當參考，每份開頭有標題和日期，提到時要講清楚是哪一場。\n\n使用者要圖表或報告時用 diagram-design skill。你不能寫檔也不能跑指令：跳過所有寫檔、跑腳本、驗證、匯出的步驟，不要問樣式或要不要存 profile。只要一張圖就做一張圖。要報告時做成一份完整文件：標題、日期、照要求分章節，每章是簡短的文字，只在圖比文字清楚的地方放圖，整份二到四張，每張圖照 diagram-design 的規則畫成獨立的 inline SVG；清單、對照用表格或條列，不要硬畫成圖；內文用系統字型，整頁內容最寬約 960px，圖的 viewBox 寬度不超過它。HTML 的顏色要用 CSS 變數，淺色定義在 :root，深色定義在 @media (prefers-color-scheme: dark) 裡，同一個檔案跟著系統外觀切換；<title> 寫這份圖表或報告的名稱。先用一兩句話說明做了什麼，接著把完整、獨立的 HTML 放在回覆最後一個 ```\(diagramFence) 程式碼區塊裡，區塊後面不要再寫任何東西，也不要叫使用者開檔案。"
 
     /// 回覆裡圖表 HTML 的程式碼區塊標記，回完由 app 取出存檔
     static let diagramFence = "html meetrec-diagram"
@@ -353,7 +353,7 @@ final class AssistantChat: ObservableObject {
         }
     }
 
-    /// 回覆最後的圖表區塊存成錄音資料夾裡的 HTML，對話裡只留說明文字
+    /// 回覆最後的圖表／報告區塊存成錄音資料夾裡的 HTML，對話裡只留說明文字
     private func extractDiagram(_ i: Int) {
         let text = messages[i].text
         guard let open = text.range(of: "```" + Self.diagramFence, options: .backwards),
@@ -362,7 +362,10 @@ final class AssistantChat: ObservableObject {
         guard !html.isEmpty else { return }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd HH-mm-ss"
-        let name = L("圖表", "Diagram") + " \(f.string(from: Date())).html"
+        // 檔名用 HTML 的 <title>（報告的名稱），沒有才叫「圖表」
+        let title = html.range(of: "(?<=<title>)[^<]+(?=</title>)", options: .regularExpression)
+            .map { html[$0].trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-") }
+        let name = (title?.isEmpty == false ? title! : L("圖表", "Diagram")) + " \(f.string(from: Date())).html"
         guard (try? html.write(to: file.deletingLastPathComponent().appendingPathComponent(name), atomically: true, encoding: .utf8)) != nil else { return }
         messages[i].text = text[..<open.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
         messages[i].diagram = name

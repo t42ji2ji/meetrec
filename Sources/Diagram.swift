@@ -25,12 +25,15 @@ struct DiagramWebView: NSViewRepresentable {
         let thumbnail: ((Double) -> Void)?
         init(thumbnail: ((Double) -> Void)?) { self.thumbnail = thumbnail }
 
-        /// 把面積最大、有 viewBox 的 SVG 拿出來單獨撐滿頁面（標題、圖例、留白都不要），回傳寬高比；找不到回 0
+        /// 把面積最大、有 viewBox 的 SVG 拿出來單獨撐滿頁面（標題、圖例、留白都不要），回傳寬高比；找不到回 0。
+        /// 有好幾張大圖的是報告，整頁保留、回 -1
         private static let isolate = """
         (() => {
           const area = e => { const r = e.getBoundingClientRect(); return r.width * r.height };
-          const svg = [...document.querySelectorAll('svg')].filter(e => e.viewBox.baseVal && e.viewBox.baseVal.width > 0)
-            .sort((a, b) => area(b) - area(a))[0];
+          const svgs = [...document.querySelectorAll('svg')].filter(e => e.viewBox.baseVal && e.viewBox.baseVal.width > 0)
+            .sort((a, b) => area(b) - area(a));
+          if (svgs.length > 1 && area(svgs[1]) > 40000) return -1;
+          const svg = svgs[0];
           if (!svg) return 0;
           const box = svg.viewBox.baseVal;
           document.body.replaceChildren(svg);
@@ -48,6 +51,9 @@ struct DiagramWebView: NSViewRepresentable {
                 if let aspect = value as? Double, aspect > 0 {
                     web.pageZoom = 1
                     thumbnail(aspect)
+                } else if let aspect = value as? Double, aspect < 0 {
+                    // 報告：照桌面寬度排的整頁，卡片露出開頭那段
+                    thumbnail(0.9)
                 } else {
                     // 沒有 SVG 的話整頁縮到放得下
                     web.evaluateJavaScript("[document.documentElement.scrollWidth, document.documentElement.scrollHeight]") { value, _ in
