@@ -1006,6 +1006,7 @@ private struct AssistantChatView: View {
                     TextField(L("問點什麼…（@ 引用其他場）", "Ask something… (@ to add another meeting)"), text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
                         .lineLimit(1...8)
+                        .writingToolsBehavior(.disabled)
                         .focused($focused)
                         .onSubmit(submit)
                         .onChange(of: mention) { _, _ in pick = 0 }
