@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import AVKit
 import SwiftUI
 
 struct DashboardView: View {
@@ -483,7 +484,6 @@ private struct RecordingDetail: View {
             Divider()
             if model.player.hasVideo && model.player.url == recording.url {
                 VideoPane(player: model.player, editor: model.editor.flatMap { $0.recording.url == recording.url ? $0 : nil })
-                Divider()
             }
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
@@ -1583,51 +1583,91 @@ private struct RecordButton: View {
     }
 }
 
-/// 匯入的影片：畫面放在逐字稿上方，正在播的那一句疊在下面當字幕；點畫面播放、暫停
+/// 匯入的影片：畫面放在逐字稿上方，正在播的那一句疊在下面當字幕。
+/// 控制列用系統的浮動樣式，滑鼠移上去才出現（播放、拖進度、全螢幕）；全螢幕時字幕跟著走。下緣可以拖拉調整高度
 private struct VideoPane: View {
-    @ObservedObject var player: DashboardPlayer
+    let player: DashboardPlayer
     let editor: TranscriptEditor?
+    @AppStorage("videoHeight") private var height: Double = 280
+    @State private var dragStart: Double?
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            VideoLayer(player: player.player)
-            if let editor { Subtitle(editor: editor, playing: editor.playing) }
+        VStack(spacing: 0) {
+            VideoPlayer(player: player.player, subtitle: editor.map { Subtitle(editor: $0, playing: $0.playing) })
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+                .background(.black)
+            // 拖拉調整高度的把手，看起來跟一般分隔線一樣
+            Divider()
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
+                .padding(.vertical, -3)
+                .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
+                .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global).onChanged { v in
+                    let start = dragStart ?? height
+                    dragStart = start
+                    height = min(max(start + v.translation.height, 140), 900)
+                }.onEnded { _ in dragStart = nil })
+                .help(L("拖拉調整影片大小", "Drag to resize the video"))
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: 280)
-        .background(.black)
-        .contentShape(Rectangle())
-        .onTapGesture { player.toggle() }
     }
 
-    private struct VideoLayer: NSViewRepresentable {
+    private struct VideoPlayer: NSViewRepresentable {
         let player: AVPlayer
-        func makeNSView(context: Context) -> NSView {
-            let view = NSView()
-            let layer = AVPlayerLayer(player: player)
-            layer.videoGravity = .resizeAspect
-            view.layer = layer
-            view.wantsLayer = true
+        let subtitle: Subtitle?
+
+        func makeNSView(context: Context) -> AVPlayerView {
+            let view = AVPlayerView()
+            view.player = player
+            view.controlsStyle = .floating
+            view.showsFullScreenToggleButton = true
+            view.videoGravity = .resizeAspect
+            // 字幕放在 contentOverlayView：全螢幕時一起帶過去
+            if let subtitle, let overlay = view.contentOverlayView {
+                let host = PassThroughHostingView(rootView: subtitle)
+                host.translatesAutoresizingMaskIntoConstraints = false
+                overlay.addSubview(host)
+                NSLayoutConstraint.activate([
+                    host.leadingAnchor.constraint(equalTo: overlay.leadingAnchor),
+                    host.trailingAnchor.constraint(equalTo: overlay.trailingAnchor),
+                    host.topAnchor.constraint(equalTo: overlay.topAnchor),
+                    host.bottomAnchor.constraint(equalTo: overlay.bottomAnchor),
+                ])
+            }
             return view
         }
-        func updateNSView(_ view: NSView, context: Context) {}
+
+        func updateNSView(_ view: AVPlayerView, context: Context) {}
     }
 
-    private struct Subtitle: View {
+    /// 字幕不接滑鼠，點擊和控制列照常給影片
+    private final class PassThroughHostingView: NSHostingView<Subtitle> {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    struct Subtitle: View {
         @ObservedObject var editor: TranscriptEditor
         @ObservedObject var playing: TranscriptEditor.Playing
 
         var body: some View {
-            if let id = playing.id, let s = editor.transcript.segments.first(where: { $0.id == id }), !s.text.isEmpty {
-                Text(s.text)
-                    .font(.title3.weight(.medium))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 14)
+            GeometryReader { g in
+                // 全螢幕時字變大；底下留位置給浮動控制列
+                let size = min(max(g.size.height / 18, 15), 40)
+                VStack {
+                    Spacer()
+                    if let id = playing.id, let s = editor.transcript.segments.first(where: { $0.id == id }), !s.text.isEmpty {
+                        Text(s.text)
+                            .font(.system(size: size, weight: .medium))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, size * 0.6)
+                            .padding(.vertical, size * 0.25)
+                            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, max(56, g.size.height * 0.1))
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
         }
     }
