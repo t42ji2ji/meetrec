@@ -181,7 +181,7 @@ enum Translator {
     }
 
     /// 免費模型常回「忙線」，等一下再試
-    private static func complete(system: String, user: String, provider: TranslationProvider, model: String, key: String, attempts: Int = 6) async throws -> String {
+    static func complete(system: String, user: String, provider: TranslationProvider, model: String, key: String, attempts: Int = 6) async throws -> String {
         var body = provider.extraBody(model: model)
         body["model"] = model
         var request = URLRequest(url: provider.endpoint, timeoutInterval: 120)

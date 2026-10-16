@@ -56,6 +56,10 @@ struct SettingsView: View {
     @State private var autoTranscribe = Settings.autoTranscribe
     @State private var dictation = Settings.dictation
     @State private var dictationLanguage = Settings.dictationLanguage
+    @State private var rewrite = Settings.dictationRewrite
+    @State private var rewriteModel = Settings.dictationRewriteModel
+    @State private var rewriteKey = { if case .cloud(let p) = Settings.dictationRewrite { p.apiKey ?? "" } else { "" } }()
+    @State private var rewritePrompt = Settings.dictationPrompt
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var mic = AVCaptureDevice.authorizationStatus(for: .audio)
     @State private var confirmDelete = false
@@ -292,12 +296,50 @@ struct SettingsView: View {
                         ForEach(Settings.TranscriptLanguage.allCases) { Text($0.label).tag($0) }
                     }
                     .onChange(of: dictationLanguage) { _, v in Settings.dictationLanguage = v }
+                    Picker(L("AI 改寫", "AI rewrite"), selection: $rewrite) {
+                        Text(L("不改寫", "Off")).tag(Settings.DictationRewrite.off)
+                        Divider()
+                        ForEach(TranslationProvider.allCases) { Text($0.name).tag(Settings.DictationRewrite.cloud($0)) }
+                        Divider()
+                        ForEach(AssistantKind.allCases) { Text($0.name).tag(Settings.DictationRewrite.cli($0)) }
+                    }
+                    .onChange(of: rewrite) { _, v in
+                        Settings.dictationRewrite = v
+                        rewriteModel = Settings.dictationRewriteModel
+                        if case .cloud(let p) = v { rewriteKey = p.apiKey ?? "" }
+                    }
+                    if case .cloud(let p) = rewrite {
+                        LabeledContent("API key") {
+                            SecureField("", text: $rewriteKey, prompt: Text(L("貼上 API key", "Paste API key")))
+                                .labelsHidden()
+                                .onChange(of: rewriteKey) { _, k in p.apiKey = k }
+                        }
+                        Picker(L("模型", "Model"), selection: $rewriteModel) {
+                            ForEach(p.models, id: \.id) { Text($0.name).tag($0.id) }
+                        }
+                        .onChange(of: rewriteModel) { _, m in Settings.dictationRewriteModel = m }
+                        Link(L("申請 \(p.name) 的 API key", "Get a \(p.name) API key"), destination: p.keyPage)
+                    }
+                    if case .cli(let k) = rewrite, !k.models.isEmpty {
+                        Picker(L("模型", "Model"), selection: $rewriteModel) {
+                            if k == .codex { Text(L("Codex 預設", "Codex default")).tag("") }
+                            ForEach(k.models, id: \.id) { Text($0.name).tag($0.id) }
+                        }
+                        .onChange(of: rewriteModel) { _, m in Settings.dictationRewriteModel = m }
+                    }
+                    if rewrite != .off {
+                        TextField(L("提示詞", "Prompt"), text: $rewritePrompt, axis: .vertical)
+                            .lineLimit(2...6)
+                            .onChange(of: rewritePrompt) { _, v in Settings.dictationPrompt = v }
+                    }
                 }
             } header: {
                 Text(L("語音輸入", "Dictation"))
             } footer: {
                 Text(L("轉文字照上面「轉錄」的設定，在本機或雲端。需要輔助使用權限，用來偵測按鍵和貼上。只有幾秒的話自動偵測語言容易判錯，建議指定。",
-                       "Uses the Transcription settings above, on this Mac or in the cloud. Needs Accessibility permission to detect the key and paste. Short clips can fool language detection, so picking one is more reliable."))
+                       "Uses the Transcription settings above, on this Mac or in the cloud. Needs Accessibility permission to detect the key and paste. Short clips can fool language detection, so picking one is more reliable.")
+                     + (rewrite == .off ? "" : L("\n\nAI 改寫會把轉好的文字（不是錄音）送給選的服務，照提示詞改完才貼上，會多等幾秒；失敗就貼原文。Groq、OpenAI 的 key 跟雲端轉錄共用。",
+                                                 "\n\nAI rewrite sends the transcribed text (not the audio) to the chosen service and pastes the result, which takes a few extra seconds. If it fails, the original text is pasted. Groq and OpenAI keys are shared with cloud transcription.")))
             }
 
             Section {

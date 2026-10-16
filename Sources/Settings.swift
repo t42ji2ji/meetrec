@@ -155,6 +155,48 @@ enum Settings {
         set { defaults.set(newValue.rawValue, forKey: "dictationLanguage") }
     }
 
+    /// 語音輸入轉完文字後交給 AI 照提示詞改寫：填 API key 的雲端服務，或本機裝的 Claude Code、Codex
+    enum DictationRewrite: Hashable {
+        case off, cloud(TranslationProvider), cli(AssistantKind)
+    }
+
+    static var dictationRewrite: DictationRewrite {
+        get {
+            let v = defaults.string(forKey: "dictationRewrite") ?? ""
+            if let p = TranslationProvider(rawValue: v) { return .cloud(p) }
+            if v.hasPrefix("cli."), let k = AssistantKind(rawValue: String(v.dropFirst(4))) { return .cli(k) }
+            return .off
+        }
+        set {
+            switch newValue {
+            case .off: defaults.removeObject(forKey: "dictationRewrite")
+            case .cloud(let p): defaults.set(p.rawValue, forKey: "dictationRewrite")
+            case .cli(let k): defaults.set("cli." + k.rawValue, forKey: "dictationRewrite")
+            }
+        }
+    }
+
+    /// 不在目前服務的清單裡就用預設：雲端是清單第一個，Claude Code 用最快的 Haiku，Codex 用它自己的預設（空字串）
+    static var dictationRewriteModel: String {
+        get {
+            let saved = defaults.string(forKey: "dictationRewriteModel")
+            switch dictationRewrite {
+            case .off: return ""
+            case .cloud(let p): return saved.flatMap { m in p.models.first { $0.id == m }?.id } ?? p.models[0].id
+            case .cli(let k): return saved.flatMap { m in k.models.first { $0.id == m }?.id } ?? (k == .claude ? "haiku" : "")
+            }
+        }
+        set { defaults.set(newValue, forKey: "dictationRewriteModel") }
+    }
+
+    static let defaultDictationPrompt = L("修正錯字和標點，去掉嗯、呃、那個之類的贅字，用詞和意思不變。",
+                                          "Fix typos and punctuation and remove filler words like um and uh. Keep the wording and meaning.")
+
+    static var dictationPrompt: String {
+        get { defaults.string(forKey: "dictationPrompt").flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } ?? defaultDictationPrompt }
+        set { defaults.set(newValue, forKey: "dictationPrompt") }
+    }
+
     static var dictationKey: Shortcut {
         get {
             guard let code = defaults.object(forKey: "dictationKey") as? Int else { return .standard }
