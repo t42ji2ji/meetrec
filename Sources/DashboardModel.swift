@@ -514,7 +514,6 @@ final class DashboardPlayer: ObservableObject {
         let t = clock.time, playing = isPlaying
         player.replaceCurrentItem(with: Self.item(url))
         self.url = url
-        checkVideo()
         seek(t)
         if playing { play() }
     }

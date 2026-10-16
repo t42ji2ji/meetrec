@@ -482,9 +482,7 @@ private struct RecordingDetail: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if model.player.hasVideo && model.player.url == recording.url {
-                VideoPane(player: model.player, editor: model.editor.flatMap { $0.recording.url == recording.url ? $0 : nil })
-            }
+            VideoSlot(player: model.player, url: recording.url, editor: model.editor.flatMap { $0.recording.url == recording.url ? $0 : nil })
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             PlayerBar(player: model.player, clock: model.player.clock,
@@ -1580,6 +1578,17 @@ private struct RecordButton: View {
             Text(text).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.red)
         }
         .padding(.horizontal, 4)
+    }
+}
+
+/// 這個畫面本身要盯著播放器：有沒有畫面是載入後才查到的，只看 model 不會重畫
+private struct VideoSlot: View {
+    @ObservedObject var player: DashboardPlayer
+    let url: URL
+    let editor: TranscriptEditor?
+
+    var body: some View {
+        if player.hasVideo && player.url == url { VideoPane(player: player, editor: editor) }
     }
 }
 
