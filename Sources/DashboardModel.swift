@@ -29,6 +29,8 @@ final class DashboardModel: ObservableObject {
     @Published private(set) var editor: TranscriptEditor?
     // 要確認的動作（畫面用 alert 呈現）
     @Published var renaming: Library.Recording?
+    /// AI 整理逐字稿（側欄裡的審閱畫面）；換錄音就丟掉
+    @Published var cleanup: TranscriptCleanup?
     @Published var deleting: Library.Recording?
     @Published var retranscribing: Library.Recording?
     @Published var creatingGroup = false
@@ -150,6 +152,8 @@ final class DashboardModel: ObservableObject {
     private func selectionChanged() {
         editor?.flush()
         editor = nil
+        cleanup?.cancel()
+        cleanup = nil
         refreshEditor()
         if let r = selectedRecording {
             player.load(r.url, duration: r.duration)
@@ -340,6 +344,17 @@ final class DashboardModel: ObservableObject {
     }
 
     // MARK: AI 對話
+
+    func startCleanup(kind: AssistantKind, model: String?) {
+        guard let editor, let found = assistants, let tool = found.tools[kind] else { return }
+        editor.flush()
+        cleanup = TranscriptCleanup(editor: editor, kind: kind, tool: tool, path: found.path, model: model)
+    }
+
+    func endCleanup() {
+        cleanup?.cancel()
+        cleanup = nil
+    }
 
     var assistantKinds: [AssistantKind] { AssistantKind.allCases.filter { assistants?.tools[$0] != nil } }
 

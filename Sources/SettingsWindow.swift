@@ -174,11 +174,20 @@ struct SettingsView: View {
             Section {
                 let _ = models.revision
                 let busy = models.progress != nil
-                Picker(L("在哪裡轉錄", "Transcribe on"), selection: $cloudTranscription) {
-                    Text(L("這台 Mac", "This Mac")).tag(false)
-                    Text(L("雲端（建議）", "Cloud (Recommended)")).tag(true)
+                // 二選一，選中的那列打勾
+                ForEach([false, true], id: \.self) { cloud in
+                    Button { cloudTranscription = cloud } label: {
+                        HStack {
+                            Text(cloud ? L("雲端（建議）", "Cloud (Recommended)") : L("這台 Mac", "This Mac"))
+                            Spacer()
+                            if cloudTranscription == cloud {
+                                Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .pickerStyle(.segmented)
                 if cloudTranscription {
                     Picker(L("服務", "Service"), selection: $service) {
                         ForEach(TranscriptionService.allCases) { Text($0.name + ($0 == .groq ? L("（建議，有免費額度）", " (Recommended, free tier)") : "")).tag($0) }

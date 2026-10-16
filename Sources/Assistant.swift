@@ -51,6 +51,53 @@ enum AssistantCLI {
         }.value
     }
 
+    /// 一次性的問答（語音輸入改寫、整理逐字稿）：不用工具、不留 session，回最後的文字
+    static func once(_ kind: AssistantKind, tool: URL, path: String, model: String?, system: String, user: String, timeout: Double = 60) async throws -> String {
+        let last = FileManager.default.temporaryDirectory.appendingPathComponent("MeetRec-once-\(UUID().uuidString).txt")
+        var args: [String], input = user
+        switch kind {
+        case .claude:
+            // 不用工具、不載 MCP、不留 session，只要一次回答
+            args = ["-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--output-format", "text", "--system-prompt", system]
+            if let model { args += ["--model", model] }
+        case .codex:
+            // codex 沒有 system prompt 參數，指示放在前面；最後的回答寫到檔案，不用從輸出裡挑
+            args = ["exec", "-c", "sandbox_mode=\"read-only\"", "--skip-git-repo-check", "--output-last-message", last.path]
+            if let model { args += ["-m", model] }
+            args.append("-")
+            input = system + "\n\n" + user
+        }
+        let dir = await AssistantChat.workingDirectory
+        return try await Task.detached {
+            let p = Process()
+            p.executableURL = tool
+            p.arguments = args
+            p.currentDirectoryURL = dir
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = path
+            p.environment = env
+            let stdin = Pipe(), out = Pipe(), err = Pipe()
+            p.standardInput = stdin
+            p.standardOutput = out
+            p.standardError = err
+            try p.run()
+            stdin.fileHandleForWriting.write(Data(input.utf8))
+            try? stdin.fileHandleForWriting.close()
+            let timer = DispatchWorkItem { if p.isRunning { p.terminate() } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
+            let stdout = out.fileHandleForReading.readDataToEndOfFile()
+            let stderr = err.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            timer.cancel()
+            defer { try? FileManager.default.removeItem(at: last) }
+            guard p.terminationStatus == 0 else {
+                let message = String(decoding: stderr.isEmpty ? stdout : stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                throw Translator.Failure(message: "\(kind.name)：" + (message.isEmpty ? L("沒有回應", "no response") : String(message.suffix(200))))
+            }
+            return kind == .codex ? ((try? String(contentsOf: last, encoding: .utf8)) ?? "") : String(decoding: stdout, as: UTF8.self)
+        }.value
+    }
+
     /// 開一個互動登入 shell 印出 PATH；.zshrc 可能會印別的東西，用記號把 PATH 挑出來
     private static func loginShellPath() -> String? {
         let p = Process()

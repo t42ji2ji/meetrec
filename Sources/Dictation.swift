@@ -246,49 +246,7 @@ enum DictationRewriter {
         guard let found, let tool = found.tools[kind] else {
             throw Translator.Failure(message: L("這台 Mac 沒找到 \(kind.name)", "\(kind.name) isn’t installed on this Mac"))
         }
-        let last = FileManager.default.temporaryDirectory.appendingPathComponent("MeetRec-dictation-\(UUID().uuidString).txt")
-        var args: [String], input = user
-        switch kind {
-        case .claude:
-            // 不用工具、不載 MCP、不留 session，只要一次回答
-            args = ["-p", "--tools", "", "--strict-mcp-config", "--no-session-persistence", "--output-format", "text", "--system-prompt", system]
-            if let model { args += ["--model", model] }
-        case .codex:
-            // codex 沒有 system prompt 參數，指示放在前面；最後的回答寫到檔案，不用從輸出裡挑
-            args = ["exec", "-c", "sandbox_mode=\"read-only\"", "--skip-git-repo-check", "--output-last-message", last.path]
-            if let model { args += ["-m", model] }
-            args.append("-")
-            input = system + "\n\n" + user
-        }
-        let path = found.path, dir = AssistantChat.workingDirectory
-        return try await Task.detached {
-            let p = Process()
-            p.executableURL = tool
-            p.arguments = args
-            p.currentDirectoryURL = dir
-            var env = ProcessInfo.processInfo.environment
-            env["PATH"] = path
-            p.environment = env
-            let stdin = Pipe(), out = Pipe(), err = Pipe()
-            p.standardInput = stdin
-            p.standardOutput = out
-            p.standardError = err
-            try p.run()
-            stdin.fileHandleForWriting.write(Data(input.utf8))
-            try? stdin.fileHandleForWriting.close()
-            let timer = DispatchWorkItem { if p.isRunning { p.terminate() } }
-            DispatchQueue.global().asyncAfter(deadline: .now() + 60, execute: timer)
-            let stdout = out.fileHandleForReading.readDataToEndOfFile()
-            let stderr = err.fileHandleForReading.readDataToEndOfFile()
-            p.waitUntilExit()
-            timer.cancel()
-            defer { try? FileManager.default.removeItem(at: last) }
-            guard p.terminationStatus == 0 else {
-                let message = String(decoding: stderr.isEmpty ? stdout : stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                throw Translator.Failure(message: "\(kind.name)：" + (message.isEmpty ? L("沒有回應", "no response") : String(message.suffix(200))))
-            }
-            return kind == .codex ? ((try? String(contentsOf: last, encoding: .utf8)) ?? "") : String(decoding: stdout, as: UTF8.self)
-        }.value
+        return try await AssistantCLI.once(kind, tool: tool, path: found.path, model: model, system: system, user: user)
     }
 }
 

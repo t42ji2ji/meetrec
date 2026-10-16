@@ -809,7 +809,11 @@ private struct AssistantPanel: View {
             AssistantChatView(chat: chat, kinds: kinds, kind: $preferred, modelID: modelID,
                               others: model.library.recordings.filter { $0.url != r.url && model.hasTranscript($0) },
                               send: { model.ask($0, images: $1, refs: $2, in: chat, about: r, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue) },
-                              reset: { model.resetChat(for: r, kind: kind) })
+                              reset: { model.resetChat(for: r, kind: kind) },
+                              cleanup: model.cleanup.flatMap { $0.editor === model.editor ? $0 : nil },
+                              startCleanup: { model.startCleanup(kind: kind, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue) },
+                              endCleanup: model.endCleanup,
+                              seek: model.player.seek)
                 .id(ObjectIdentifier(chat))
         } else {
             ContentUnavailableView(L("選一場有逐字稿的錄音", "Select a Transcribed Recording"), systemImage: "bubble.left.and.text.bubble.right")
@@ -826,6 +830,10 @@ private struct AssistantChatView: View {
     let others: [Library.Recording]
     let send: (String, [Data], [Library.Recording]) -> Void
     let reset: () -> Void
+    let cleanup: TranscriptCleanup?
+    let startCleanup: () -> Void
+    let endCleanup: () -> Void
+    let seek: (Double) -> Void
     @State private var draft = ""
     /// 還沒送出的圖
     @State private var images: [Data] = []
@@ -875,6 +883,10 @@ private struct AssistantChatView: View {
                     .disabled(chat.running)
                     .help(L("產生報告", "Create a Report"))
                 }
+                Button(action: startCleanup) { Image(systemName: "wand.and.sparkles") }
+                    .buttonStyle(.borderless)
+                    .help(L("AI 整理逐字稿：修錯字、標點、贅字，看過再套用", "Clean Up Transcript with AI: fix typos, punctuation and filler words, review before applying"))
+                    .disabled(chat.running || cleanup != nil)
                 Button(action: reset) { Image(systemName: "square.and.pencil") }
                     .buttonStyle(.borderless)
                     .help(L("新對話", "New Chat"))
@@ -883,6 +895,41 @@ private struct AssistantChatView: View {
             .padding(.horizontal, 14)
             .frame(height: 40)
             Divider()
+            if let cleanup {
+                CleanupView(cleanup: cleanup, seek: seek, close: endCleanup)
+            } else {
+                chatBody
+            }
+        }
+        .overlay {
+            if dropping {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .padding(4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [.fileURL, .image], isTargeted: $dropping, perform: drop)
+        .onAppear {
+            focused = true
+            // 文字框自己會吃掉 ⌘V，只會貼文字；剪貼簿是圖的話先攔下來當附件
+            pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard focused, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                      event.charactersIgnoringModifiers == "v" else { return event }
+                let pasted = pastedImages()
+                guard !pasted.isEmpty else { return event }
+                images += pasted
+                return nil
+            }
+        }
+        .onDisappear {
+            if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }
+            pasteMonitor = nil
+        }
+    }
+
+    @ViewBuilder private var chatBody: some View {
             let reports = chat.reports
             if !reports.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -1042,33 +1089,6 @@ private struct AssistantChatView: View {
             .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator))
             .padding(12)
-        }
-        .overlay {
-            if dropping {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.accentColor, lineWidth: 2)
-                    .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .padding(4)
-                    .allowsHitTesting(false)
-            }
-        }
-        .onDrop(of: [.fileURL, .image], isTargeted: $dropping, perform: drop)
-        .onAppear {
-            focused = true
-            // 文字框自己會吃掉 ⌘V，只會貼文字；剪貼簿是圖的話先攔下來當附件
-            pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                guard focused, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                      event.charactersIgnoringModifiers == "v" else { return event }
-                let pasted = pastedImages()
-                guard !pasted.isEmpty else { return event }
-                images += pasted
-                return nil
-            }
-        }
-        .onDisappear {
-            if let pasteMonitor { NSEvent.removeMonitor(pasteMonitor) }
-            pasteMonitor = nil
-        }
     }
 
     private func submit() {
@@ -1679,5 +1699,120 @@ private struct VideoPane: View {
                 .frame(maxWidth: .infinity)
             }
         }
+    }
+}
+
+/// AI 整理逐字稿的審閱畫面：改過的句子一列一列，原文劃掉、新的在下面；勾選的才套用
+private struct CleanupView: View {
+    @ObservedObject var cleanup: TranscriptCleanup
+    let seek: (Double) -> Void
+    let close: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            status.padding(14)
+            Divider()
+            if cleanup.changes.isEmpty {
+                if cleanup.phase == .review {
+                    ContentUnavailableView(L("沒有需要修改的地方", "Nothing to Change"), systemImage: "checkmark.circle")
+                } else {
+                    Spacer()
+                }
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach($cleanup.changes) { $c in
+                            row($c)
+                            Divider()
+                        }
+                    }
+                }
+            }
+            Divider()
+            footer.padding(12)
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(L("整理逐字稿", "Clean Up Transcript"), systemImage: "wand.and.sparkles").font(.headline)
+            switch cleanup.phase {
+            case .running(let done, let total):
+                ProgressView(value: Double(done), total: Double(total))
+                // 時間到才重算剩幾秒
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(cleanup.remaining.map { L("已修改 \(cleanup.changes.count) 句 · 大約還要 \(Self.duration($0))", "\(cleanup.changes.count) changed · about \(Self.duration($0)) left") }
+                         ?? L("正在讀逐字稿…", "Reading the transcript…"))
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            case .review:
+                if !cleanup.changes.isEmpty {
+                    Text(L("勾選要套用的修改，點時間可以聽那一句。", "Check the changes to apply. Click a time to hear that line."))
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+            case .applied(let n):
+                Text(L("已套用 \(n) 句。", "Applied \(n) changes.")).font(.callout).foregroundStyle(.secondary)
+            case .failed(let message):
+                Text(message).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func row(_ c: Binding<TranscriptCleanup.Change>) -> some View {
+        let applied = if case .applied = cleanup.phase { true } else { false }
+        return HStack(alignment: .top, spacing: 10) {
+            Toggle("", isOn: c.accepted).toggleStyle(.checkbox).labelsHidden().disabled(applied)
+            VStack(alignment: .leading, spacing: 4) {
+                Button(Transcript.clock(c.wrappedValue.start)) { seek(c.wrappedValue.start) }
+                    .buttonStyle(.plain)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(Color.accentColor)
+                    .onHover { inside in if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+                    .help(L("跳到這一句", "Jump to this line"))
+                Text(c.wrappedValue.original).strikethrough().foregroundStyle(.secondary)
+                Text(c.wrappedValue.revised)
+            }
+            .textSelection(.enabled)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .opacity(c.wrappedValue.accepted ? 1 : 0.5)
+    }
+
+    @ViewBuilder private var footer: some View {
+        HStack {
+            switch cleanup.phase {
+            case .running:
+                Spacer()
+                Button(L("停止", "Stop")) { cleanup.cancel(); close() }
+            case .review:
+                Button(L("捨棄", "Discard"), action: close)
+                Spacer()
+                if !cleanup.changes.isEmpty {
+                    let all = cleanup.changes.allSatisfy(\.accepted)
+                    Button(all ? L("全不選", "Select None") : L("全選", "Select All")) {
+                        for i in cleanup.changes.indices { cleanup.changes[i].accepted = !all }
+                    }
+                    let n = cleanup.changes.filter(\.accepted).count
+                    Button(L("套用 \(n) 句", "Apply \(n)")) { cleanup.apply() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(n == 0)
+                } else {
+                    Button(L("完成", "Done"), action: close).buttonStyle(.borderedProminent)
+                }
+            case .applied:
+                Button(L("復原", "Undo"), action: cleanup.undo)
+                Spacer()
+                Button(L("完成", "Done"), action: close).buttonStyle(.borderedProminent)
+            case .failed:
+                Spacer()
+                Button(L("關閉", "Close"), action: close)
+            }
+        }
+    }
+
+    static func duration(_ s: Int) -> String {
+        s < 60 ? L("\(max(s, 1)) 秒", "\(max(s, 1))s") : L("\(s / 60) 分 \(s % 60) 秒", "\(s / 60)m \(s % 60)s")
     }
 }
