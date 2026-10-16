@@ -86,7 +86,7 @@ struct SettingsView: View {
                         if on { try? SMAppService.mainApp.register() } else { try? SMAppService.mainApp.unregister() }
                         launchAtLogin = SMAppService.mainApp.status == .enabled
                     }
-                Toggle(L("瀏覽器開始用麥克風時，問要不要錄音", "Ask to record when a browser starts using the microphone"), isOn: $askToRecord)
+                Toggle(L("瀏覽器或會議 app 開始用麥克風時，問要不要錄音", "Ask to record when a browser or meeting app starts using the microphone"), isOn: $askToRecord)
                     .onChange(of: askToRecord) { _, v in Settings.askToRecord = v }
                 Toggle(L("錄完自動轉逐字稿", "Transcribe automatically after recording"), isOn: $autoTranscribe)
                     .onChange(of: autoTranscribe) { _, v in Settings.autoTranscribe = v }

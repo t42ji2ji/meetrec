@@ -301,7 +301,20 @@ final class DashboardModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([r.folder])
     }
 
-    enum ExportFormat: String { case srt, txt, pdf }
+    enum ExportFormat: String, CaseIterable {
+        case txt, md, docx, pdf, html, srt, vtt
+        var label: String {
+            switch self {
+            case .txt: return "TXT"
+            case .md: return "Markdown"
+            case .docx: return "Word (DOCX)"
+            case .pdf: return "PDF"
+            case .html: return "HTML"
+            case .srt: return L("SRT 字幕", "SRT subtitles")
+            case .vtt: return L("VTT 字幕", "VTT subtitles")
+            }
+        }
+    }
 
     func export(_ r: Library.Recording, as format: ExportFormat) {
         if editor?.recording.url == r.url { editor?.flush() }
@@ -314,7 +327,11 @@ final class DashboardModel: ObservableObject {
         do {
             switch format {
             case .srt: try t.srt().write(to: url, atomically: true, encoding: .utf8)
+            case .vtt: try t.vtt().write(to: url, atomically: true, encoding: .utf8)
             case .txt: try t.txt().write(to: url, atomically: true, encoding: .utf8)
+            case .md: try t.markdown(title: r.name, subtitle: r.dateText).write(to: url, atomically: true, encoding: .utf8)
+            case .html: try t.html(title: r.name, subtitle: r.dateText).write(to: url, atomically: true, encoding: .utf8)
+            case .docx: try t.docx(title: r.name, subtitle: r.dateText).write(to: url, options: .atomic)
             case .pdf: try t.pdf(title: r.name, subtitle: r.dateText).write(to: url, options: .atomic)
             }
         } catch {

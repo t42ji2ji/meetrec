@@ -243,7 +243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panel.dismiss()
             }
         } else if b == nil {
-            panel.show(symbol: "stop.circle.fill", title: L("會議好像結束了", "The meeting seems to have ended"), subtitle: L("瀏覽器已停止使用麥克風", "The browser stopped using the microphone"),
+            panel.show(symbol: "stop.circle.fill", title: L("會議好像結束了", "The meeting seems to have ended"), subtitle: L("\(meeting?.browser.name ?? "瀏覽器") 已停止使用麥克風", "\(meeting?.browser.name ?? "The browser") stopped using the microphone"),
                        buttons: [(L("繼續錄", "Keep Recording"), false, {}), (L("停止並存檔", "Stop and Save"), true, { [weak self] in self?.stop() })])
         } else {
             panel.dismiss()

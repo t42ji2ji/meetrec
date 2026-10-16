@@ -48,9 +48,9 @@ struct DashboardView: View {
                     .help(L("重新轉逐字稿（會蓋掉手動修改）", "Re-transcribe (overwrites manual edits)"))
                     .disabled(!has || busy)
                 Menu {
-                    Button(L("匯出 SRT…", "Export SRT…")) { if let r { model.export(r, as: .srt) } }
-                    Button(L("匯出 TXT…", "Export TXT…")) { if let r { model.export(r, as: .txt) } }
-                    Button(L("匯出 PDF…", "Export PDF…")) { if let r { model.export(r, as: .pdf) } }
+                    ForEach(DashboardModel.ExportFormat.allCases, id: \.self) { f in
+                        Button(f.label + "…") { if let r { model.export(r, as: f) } }
+                    }
                 } label: { Label(L("匯出", "Export"), systemImage: "square.and.arrow.up") }
                     .help(L("匯出逐字稿", "Export transcript"))
                     .disabled(!has)
@@ -230,7 +230,7 @@ private struct SidebarView: View {
                 ContentUnavailableView {
                     Label(L("還沒有錄音", "No Recordings Yet"), systemImage: "waveform")
                 } description: {
-                    Text(L("瀏覽器開始用麥克風時 MeetRec 會問要不要錄。也可以把音檔或影片拖進來。", "MeetRec asks whether to record when your browser starts using the microphone. You can also drag audio or video files here."))
+                    Text(L("瀏覽器或會議 app 開始用麥克風時 MeetRec 會問要不要錄。也可以把音檔或影片拖進來。", "MeetRec asks whether to record when your browser or a meeting app starts using the microphone. You can also drag audio or video files here."))
                 } actions: {
                     Button(L("匯入…", "Import…")) { model.importing = true }
                 }
@@ -390,9 +390,11 @@ private struct RecordingActions: View {
             if has { model.retranscribing = recording } else { model.transcribe(recording) }
         }
         .disabled(busy)
-        Button(L("匯出 SRT…", "Export SRT…")) { model.export(recording, as: .srt) }.disabled(!has)
-        Button(L("匯出 TXT…", "Export TXT…")) { model.export(recording, as: .txt) }.disabled(!has)
-        Button(L("匯出 PDF…", "Export PDF…")) { model.export(recording, as: .pdf) }.disabled(!has)
+        Menu(L("匯出", "Export")) {
+            ForEach(DashboardModel.ExportFormat.allCases, id: \.self) { f in
+                Button(f.label + "…") { model.export(recording, as: f) }
+            }
+        }.disabled(!has)
         Divider()
         Button(L("移到垃圾桶…", "Move to Trash…"), role: .destructive) { model.deleting = recording }
     }

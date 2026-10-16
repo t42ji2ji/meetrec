@@ -77,8 +77,51 @@ struct Transcript: Codable, Equatable {
         paragraphs.map { "[\(Self.clock($0.start))] \(label($0.speaker))\($0.text)" }.joined(separator: "\n") + "\n"
     }
 
-    /// A4 分頁的 PDF：標題、日期，接著每段「時間 說話者」一行、內文一行
-    func pdf(title: String, subtitle: String) -> Data {
+    func vtt() -> String {
+        "WEBVTT\n\n" + segments.map { s in
+            "\(Self.srtTime(s.start).replacingOccurrences(of: ",", with: ".")) --> \(Self.srtTime(s.end).replacingOccurrences(of: ",", with: "."))\n\(label(s.speaker))\(s.text)\n"
+        }.joined(separator: "\n")
+    }
+
+    func markdown(title: String, subtitle: String) -> String {
+        "# \(title)\n\n\(subtitle)\n\n" + paragraphs.map { p in
+            let n = name(p.speaker)
+            return "`\(Self.clock(p.start))`" + (n.isEmpty ? "" : " **\(n)**") + "\n\n\(p.text)\n"
+        }.joined(separator: "\n")
+    }
+
+    func html(title: String, subtitle: String) -> String {
+        func esc(_ s: String) -> String {
+            s.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;")
+        }
+        let body = paragraphs.map { p in
+            let n = name(p.speaker)
+            return "<p class=\"head\"><time>\(Self.clock(p.start))</time>" + (n.isEmpty ? "" : " <b>\(esc(n))</b>") + "</p>\n<p>\(esc(p.text))</p>"
+        }.joined(separator: "\n")
+        return """
+        <!doctype html>
+        <html><head><meta charset="utf-8"><title>\(esc(title))</title>
+        <style>
+        body { font: 15px/1.6 -apple-system, system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; color: #111; }
+        h1 { font-size: 24px; margin-bottom: 4px; } .sub { color: #666; margin-bottom: 28px; }
+        .head { margin: 18px 0 2px; font-size: 13px; color: #444; } time { color: #888; font-variant-numeric: tabular-nums; }
+        @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } .sub, .head { color: #aaa; } }
+        </style></head><body>
+        <h1>\(esc(title))</h1><p class="sub">\(esc(subtitle))</p>
+        \(body)
+        </body></html>
+
+        """
+    }
+
+    /// Word 檔：跟 PDF 同一份排版
+    func docx(title: String, subtitle: String) throws -> Data {
+        let body = attributed(title: title, subtitle: subtitle)
+        return try body.data(from: NSRange(location: 0, length: body.length), documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML])
+    }
+
+    /// PDF、Word 共用的排版：標題、日期，接著每段「時間 說話者」一行、內文一行
+    private func attributed(title: String, subtitle: String) -> NSMutableAttributedString {
         let body = NSMutableAttributedString()
         func add(_ text: String, _ font: NSFont, _ color: NSColor = .black, after: CGFloat) {
             let style = NSMutableParagraphStyle()
@@ -99,7 +142,12 @@ struct Transcript: Codable, Equatable {
             body.append(NSAttributedString(string: "\n"))
             add(p.text, .systemFont(ofSize: 11), after: 12)
         }
+        return body
+    }
 
+    /// A4 分頁的 PDF
+    func pdf(title: String, subtitle: String) -> Data {
+        let body = attributed(title: title, subtitle: subtitle)
         var page = CGRect(x: 0, y: 0, width: 595, height: 842)
         let frame = page.insetBy(dx: 56, dy: 56)
         let data = NSMutableData()

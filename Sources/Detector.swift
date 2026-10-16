@@ -20,6 +20,14 @@ let browsers = [
     Browser(bundlePrefix: "org.mozilla", appID: "org.mozilla.firefox", name: "Firefox", tabTitle: nil),
     // 不是瀏覽器，但一樣是 Chromium（Electron）：huddle 的收音、出聲在 Slack Helper；沒有分頁可讀
     Browser(bundlePrefix: "com.tinyspeck.slackmacgap", appID: "com.tinyspeck.slackmacgap", name: "Slack", tabTitle: nil),
+    // 原生會議 app：收音在主程式或它的 helper（同一個前綴），一樣沒有分頁可讀
+    Browser(bundlePrefix: "us.zoom", appID: "us.zoom.xos", name: "Zoom", tabTitle: nil),
+    Browser(bundlePrefix: "com.microsoft.teams2", appID: "com.microsoft.teams2", name: "Teams", tabTitle: nil),
+    Browser(bundlePrefix: "Cisco-Systems.Spark", appID: "Cisco-Systems.Spark", name: "Webex", tabTitle: nil),
+    Browser(bundlePrefix: "com.webex.meetingmanager", appID: "com.webex.meetingmanager", name: "Webex", tabTitle: nil),
+    Browser(bundlePrefix: "com.hnc.Discord", appID: "com.hnc.Discord", name: "Discord", tabTitle: nil),
+    Browser(bundlePrefix: "com.amazon.Amazon-Chime", appID: "com.amazon.Amazon-Chime", name: "Chime", tabTitle: nil),
+    Browser(bundlePrefix: "jp.naver.line.mac", appID: "jp.naver.line.mac", name: "LINE", tabTitle: nil),
 ]
 
 extension Browser {
@@ -67,7 +75,7 @@ extension Browser {
     }
 }
 
-/// 每秒檢查哪個瀏覽器在用麥克風，狀態改變時回呼（主執行緒）
+/// 每秒檢查哪個瀏覽器或會議 app 在用麥克風，狀態改變時回呼（主執行緒）
 final class Detector {
     var onChange: ((Browser?) -> Void)?
     private(set) var current: Browser?
