@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 struct DashboardView: View {
@@ -479,6 +480,10 @@ private struct RecordingDetail: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if model.player.hasVideo && model.player.url == recording.url {
+                VideoPane(player: model.player, editor: model.editor.flatMap { $0.recording.url == recording.url ? $0 : nil })
+                Divider()
+            }
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             PlayerBar(player: model.player, clock: model.player.clock,
@@ -1574,5 +1579,55 @@ private struct RecordButton: View {
             Text(text).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.red)
         }
         .padding(.horizontal, 4)
+    }
+}
+
+/// 匯入的影片：畫面放在逐字稿上方，正在播的那一句疊在下面當字幕；點畫面播放、暫停
+private struct VideoPane: View {
+    @ObservedObject var player: DashboardPlayer
+    let editor: TranscriptEditor?
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            VideoLayer(player: player.player)
+            if let editor { Subtitle(editor: editor, playing: editor.playing) }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 280)
+        .background(.black)
+        .contentShape(Rectangle())
+        .onTapGesture { player.toggle() }
+    }
+
+    private struct VideoLayer: NSViewRepresentable {
+        let player: AVPlayer
+        func makeNSView(context: Context) -> NSView {
+            let view = NSView()
+            let layer = AVPlayerLayer(player: player)
+            layer.videoGravity = .resizeAspect
+            view.layer = layer
+            view.wantsLayer = true
+            return view
+        }
+        func updateNSView(_ view: NSView, context: Context) {}
+    }
+
+    private struct Subtitle: View {
+        @ObservedObject var editor: TranscriptEditor
+        @ObservedObject var playing: TranscriptEditor.Playing
+
+        var body: some View {
+            if let id = playing.id, let s = editor.transcript.segments.first(where: { $0.id == id }), !s.text.isEmpty {
+                Text(s.text)
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 14)
+            }
+        }
     }
 }

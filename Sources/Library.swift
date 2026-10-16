@@ -65,7 +65,8 @@ final class Library: ObservableObject {
     /// 正在錄的檔案，清單要排除
     var recordingFile: URL? { didSet { reload() } }
 
-    nonisolated private static let audioTypes: Set = ["m4a", "aac", "mp3", "wav", "aiff", "aif", "caf", "flac"]
+    /// 錄音資料夾裡當成這場錄音的檔案。AVFoundation 能播的影片直接留著，播放時看得到畫面
+    nonisolated private static let audioTypes: Set = ["m4a", "aac", "mp3", "wav", "aiff", "aif", "caf", "flac", "mp4", "mov", "m4v"]
     private var watcher: DispatchSourceFileSystemObject?
     /// 每個分類資料夾各一個，裡面有變動也要重新整理
     private var groupWatchers: [String: DispatchSourceFileSystemObject] = [:]
@@ -189,7 +190,7 @@ final class Library: ObservableObject {
         }
     }
 
-    /// 複製進錄音資料夾（自己一個資料夾）後轉逐字稿；影片之類 AVFoundation 能讀但不是純音檔的，抽出聲音轉成 m4a。
+    /// 複製進錄音資料夾（自己一個資料夾）後轉逐字稿；mp4、mov 照原檔留著，其他 AVFoundation 能讀的格式抽出聲音轉成 m4a。
     /// moving：來源是暫存檔（網址下載的），搬過去或轉完就刪
     func importFiles(_ urls: [URL], moving: Bool = false) {
         let root = folder

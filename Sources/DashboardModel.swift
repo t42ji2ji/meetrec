@@ -464,6 +464,8 @@ final class DashboardPlayer: ObservableObject {
     @Published private(set) var url: URL?
     @Published private(set) var isPlaying = false
     @Published private(set) var duration: Double = 0
+    /// 檔案有畫面（匯入的影片）就在逐字稿上方播
+    @Published private(set) var hasVideo = false
     @Published var rate: Float = 1 {
         didSet {
             // defaultRate：暫停中改速度不會開始播放
@@ -472,7 +474,7 @@ final class DashboardPlayer: ObservableObject {
         }
     }
 
-    private let player = AVPlayer()
+    let player = AVPlayer()
     private var observer: Any?
     private var bag = Set<AnyCancellable>()
 
@@ -495,6 +497,16 @@ final class DashboardPlayer: ObservableObject {
         self.url = url
         self.duration = duration
         clock.time = 0
+        checkVideo()
+    }
+
+    private func checkVideo() {
+        hasVideo = false
+        guard let item = player.currentItem else { return }
+        Task {
+            let video = (try? await item.asset.loadTracks(withMediaType: .video).isEmpty == false) ?? false
+            if player.currentItem === item { hasVideo = video }
+        }
     }
 
     /// 檔案改名：換成新路徑，位置和播放狀態不變
@@ -502,6 +514,7 @@ final class DashboardPlayer: ObservableObject {
         let t = clock.time, playing = isPlaying
         player.replaceCurrentItem(with: Self.item(url))
         self.url = url
+        checkVideo()
         seek(t)
         if playing { play() }
     }
@@ -510,6 +523,7 @@ final class DashboardPlayer: ObservableObject {
         player.pause()
         player.replaceCurrentItem(with: nil)
         url = nil
+        hasVideo = false
         duration = 0
         clock.time = 0
     }
