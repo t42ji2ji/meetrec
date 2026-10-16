@@ -345,10 +345,10 @@ final class DashboardModel: ObservableObject {
 
     // MARK: AI 對話
 
-    func startCleanup(kind: AssistantKind, model: String?) {
+    func startCleanup(kind: AssistantKind, model: String?, instruction: String? = nil) {
         guard let editor, let found = assistants, let tool = found.tools[kind] else { return }
         editor.flush()
-        cleanup = TranscriptCleanup(editor: editor, kind: kind, tool: tool, path: found.path, model: model)
+        cleanup = TranscriptCleanup(editor: editor, kind: kind, tool: tool, path: found.path, model: model, instruction: instruction)
     }
 
     func endCleanup() {

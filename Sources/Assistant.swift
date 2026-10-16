@@ -187,7 +187,16 @@ final class AssistantChat: ObservableObject {
         try? FileManager.default.removeItem(at: file)
     }
 
-    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編；需要逐字稿以外的資料時可以用工具去查。使用者也可能附上其他場會議的逐字稿當參考，每份開頭有標題和日期，提到時要講清楚是哪一場。\n\n使用者要圖表或報告時用 diagram-design skill。你不能寫檔也不能跑指令：跳過所有寫檔、跑腳本、驗證、匯出的步驟，不要問樣式或要不要存 profile。只要一張圖就做一張圖。要報告時做成一份完整文件：標題、日期、照要求分章節，每章是簡短的文字，只在圖比文字清楚的地方放圖，整份二到四張，每張圖照 diagram-design 的規則畫成獨立的 inline SVG；清單、對照用表格或條列，不要硬畫成圖；內文用系統字型，整頁內容最寬約 960px，圖的 viewBox 寬度不超過它。HTML 的顏色要用 CSS 變數，淺色定義在 :root，深色定義在 @media (prefers-color-scheme: dark) 裡，同一個檔案跟著系統外觀切換；<title> 寫這份圖表或報告的名稱。先用一兩句話說明做了什麼，接著把完整、獨立的 HTML 放在回覆最後一個 ```\(diagramFence) 程式碼區塊裡，區塊後面不要再寫任何東西，也不要叫使用者開檔案。"
+    private static let instructions = "你是會議助理。使用者會給你一場會議的逐字稿（語音辨識產生，可能有錯字、說話者標錯），請根據逐字稿回答問題，用使用者提問的語言回答。逐字稿裡沒有的事要直說沒提到，不要編；需要逐字稿以外的資料時可以用工具去查。使用者也可能附上其他場會議的逐字稿當參考，每份開頭有標題和日期，提到時要講清楚是哪一場。\n\n使用者要圖表或報告時用 diagram-design skill。你不能寫檔也不能跑指令：跳過所有寫檔、跑腳本、驗證、匯出的步驟，不要問樣式或要不要存 profile。只要一張圖就做一張圖。要報告時做成一份完整文件：標題、日期、照要求分章節，每章是簡短的文字，只在圖比文字清楚的地方放圖，整份二到四張，每張圖照 diagram-design 的規則畫成獨立的 inline SVG；清單、對照用表格或條列，不要硬畫成圖；內文用系統字型，整頁內容最寬約 960px，圖的 viewBox 寬度不超過它。HTML 的顏色要用 CSS 變數，淺色定義在 :root，深色定義在 @media (prefers-color-scheme: dark) 裡，同一個檔案跟著系統外觀切換；<title> 寫這份圖表或報告的名稱。先用一兩句話說明做了什麼，接著把完整、獨立的 HTML 放在回覆最後一個 ```\(diagramFence) 程式碼區塊裡，區塊後面不要再寫任何東西，也不要叫使用者開檔案。\n\n使用者要你修改、優化、整理、潤飾逐字稿本身時（說法常很短，例如「優化一下」「整理一下」「修一下錯字」「口語改順一點」「某個名字統一寫成某某」），不要貼出改好的全文：用一兩句話說明會怎麼改，回覆最後一行寫 <cleanup>給修改工具的一句指示</cleanup>。app 會照這句指示逐句修改（一句改一句，不合併也不拆開），列出來讓使用者勾選後套用。要摘要、報告、回答問題時不用這個標籤。"
+
+    /// 回覆裡要 app 修改逐字稿的指示：<cleanup>…</cleanup>
+    static func cleanupInstruction(in text: String) -> String? {
+        text.firstMatch(of: #/<cleanup>([\s\S]*?)</cleanup>/#).map { String($0.1).trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    static func hidingCleanup(_ text: String) -> String {
+        text.replacing(#/<cleanup>[\s\S]*?(</cleanup>|$)/#, with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// 回覆裡圖表 HTML 的程式碼區塊標記，回完由 app 取出存檔
     static let diagramFence = "html meetrec-diagram"

@@ -811,7 +811,7 @@ private struct AssistantPanel: View {
                               send: { model.ask($0, images: $1, refs: $2, in: chat, about: r, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue) },
                               reset: { model.resetChat(for: r, kind: kind) },
                               cleanup: model.cleanup.flatMap { $0.editor === model.editor ? $0 : nil },
-                              startCleanup: { model.startCleanup(kind: kind, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue) },
+                              startCleanup: { model.startCleanup(kind: kind, model: modelID.wrappedValue.isEmpty ? nil : modelID.wrappedValue, instruction: $0) },
                               endCleanup: model.endCleanup,
                               seek: model.player.seek)
                 .id(ObjectIdentifier(chat))
@@ -831,7 +831,8 @@ private struct AssistantChatView: View {
     let send: (String, [Data], [Library.Recording]) -> Void
     let reset: () -> Void
     let cleanup: TranscriptCleanup?
-    let startCleanup: () -> Void
+    /// nil＝預設的整理；AI 對話回覆裡給的指示就照那句改
+    let startCleanup: (String?) -> Void
     let endCleanup: () -> Void
     let seek: (Double) -> Void
     @State private var draft = ""
@@ -883,7 +884,7 @@ private struct AssistantChatView: View {
                     .disabled(chat.running)
                     .help(L("產生報告", "Create a Report"))
                 }
-                Button(action: startCleanup) { Image(systemName: "wand.and.sparkles") }
+                Button { startCleanup(nil) } label: { Image(systemName: "wand.and.sparkles") }
                     .buttonStyle(.borderless)
                     .help(L("AI 整理逐字稿：修錯字、標點、贅字，看過再套用", "Clean Up Transcript with AI: fix typos, punctuation and filler words, review before applying"))
                     .disabled(chat.running || cleanup != nil)
@@ -1312,7 +1313,7 @@ private struct AssistantChatView: View {
             let live = chat.running && m.id == chat.messages.last?.id
             // 圖表的 HTML 區塊回完才會取出存檔，串流中先藏起來
             let fence = m.text.range(of: "```" + AssistantChat.diagramFence)
-            let text = fence.map { m.text[..<$0.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines) } ?? m.text
+            let text = AssistantChat.hidingCleanup(fence.map { String(m.text[..<$0.lowerBound]) } ?? m.text)
             VStack(alignment: .leading, spacing: 6) {
                 if !text.isEmpty || live {
                     Group {
@@ -1331,12 +1332,20 @@ private struct AssistantChatView: View {
                     .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 if let d = m.diagram { DiagramCard(url: chat.diagramURL(d)) }
+                if !live, let instruction = AssistantChat.cleanupInstruction(in: m.text) {
+                    Button { startCleanup(instruction) } label: {
+                        Label(L("套用到逐字稿…", "Apply to Transcript…"), systemImage: "wand.and.sparkles")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(cleanup != nil)
+                    .help(L("照這個指示逐句修改，看過再套用", "Edit each line this way, then review before applying"))
+                }
                 // 講完才給複製，複製的是原始 markdown
                 if !m.text.isEmpty, !live {
                     Button {
                         NSPasteboard.general.clearContents()
                         // codex 的檔案引用標記換成路徑，貼到別處才看得懂
-                        let text = m.text.replacing(#/:codex-file-citation\{[^}]*?path="([^"]+)"[^}]*\}/#) { String($0.1) }
+                        let text = AssistantChat.hidingCleanup(m.text).replacing(#/:codex-file-citation\{[^}]*?path="([^"]+)"[^}]*\}/#) { String($0.1) }
                         NSPasteboard.general.setString(text, forType: .string)
                         copied = m.id
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { if copied == m.id { copied = nil } }
@@ -1736,6 +1745,9 @@ private struct CleanupView: View {
     @ViewBuilder private var status: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(L("整理逐字稿", "Clean Up Transcript"), systemImage: "wand.and.sparkles").font(.headline)
+            if cleanup.instruction != TranscriptCleanup.instruction {
+                Text(cleanup.instruction).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+            }
             switch cleanup.phase {
             case .running(let done, let total):
                 ProgressView(value: Double(done), total: Double(total))

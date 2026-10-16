@@ -20,6 +20,8 @@ final class TranscriptCleanup: ObservableObject {
     }
 
     let editor: TranscriptEditor
+    /// 這次照什麼指示改（預設的整理，或 AI 對話裡講好的）
+    let instruction: String
     @Published private(set) var phase: Phase
     @Published var changes: [Change] = []
     private let started = Date()
@@ -33,8 +35,10 @@ final class TranscriptCleanup: ObservableObject {
     static let instruction = L("修正錯字和同音錯字、補上標點，去掉嗯、呃、那個這類贅字。保持原本的語言和說話的口氣，不要改成書面語，不要翻譯。",
                                "Fix typos and misheard words, add punctuation, and remove filler words like um and uh. Keep the original language and speaking tone; don't make it formal and don't translate.")
 
-    init(editor: TranscriptEditor, kind: AssistantKind, tool: URL, path: String, model: String?) {
+    init(editor: TranscriptEditor, kind: AssistantKind, tool: URL, path: String, model: String?, instruction: String? = nil) {
         self.editor = editor
+        let instruction = instruction ?? Self.instruction
+        self.instruction = instruction
         let lines = editor.transcript.segments.map { (id: $0.id, start: $0.start, text: $0.text) }.filter { !$0.text.isEmpty }
         let batches = stride(from: 0, to: lines.count, by: Self.batchSize).map { Array(lines[$0..<min($0 + Self.batchSize, lines.count)]) }
         phase = batches.isEmpty ? .review : .running(done: 0, total: batches.count)
@@ -44,7 +48,7 @@ final class TranscriptCleanup: ObservableObject {
         你會收到一段會議逐字稿，每行開頭是 [編號]。照下面的指示逐行修正，每一行都照原本的編號輸出：「[編號] 修正後的文字」。\
         不要合併、拆開或刪掉任何一行，不用改的行照原樣輸出，不要加任何說明。
 
-        指示：\(Self.instruction)
+        指示：\(instruction)
         """
         let words = Settings.vocabulary.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if !words.isEmpty { system += "\n\n常用詞（逐字稿裡聽起來像這些的，照這個寫法）：" + words.joined(separator: "、") }
