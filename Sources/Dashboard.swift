@@ -176,9 +176,11 @@ final class DropHostingView: NSHostingView<DashboardView> {
 }
 
 extension Dashboard: NSMenuItemValidation {
-    /// 打字時 ⌘⌫ 要留給文字框（刪到行首），選單項目關掉按鍵才會傳下去
+    /// 文字框裡有字時 ⌘⌫ 留給它（刪到行首），選單項目關掉按鍵才會傳下去。
+    /// 空的不算：AI 對話的輸入框常常一直拿著焦點，點了側欄也不會移走
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard item.action == #selector(moveToTrash) else { return true }
-        return model.selectedRecording != nil && !(window?.firstResponder is NSText)
+        if let text = window?.firstResponder as? NSText, !text.string.isEmpty { return false }
+        return model.selectedRecording != nil
     }
 }
