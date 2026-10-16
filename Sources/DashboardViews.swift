@@ -884,8 +884,11 @@ private struct AssistantChatView: View {
                     .disabled(chat.running)
                     .help(L("產生報告", "Create a Report"))
                 }
-                Button { startCleanup(nil) } label: { Image(systemName: "wand.and.sparkles") }
-                    .buttonStyle(.borderless)
+                Button { startCleanup(nil) } label: { Label(L("整理", "Clean Up"), systemImage: "wand.and.sparkles").labelStyle(.titleAndIcon).contentShape(Rectangle()) }
+                    // 無邊框按鈕在視窗沒被選中時會變灰，看起來像不能按；跟旁邊的「報告」一樣保持黑字
+                    .buttonStyle(.plain)
+                    .onHover { inside in if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() } }
+                    .fixedSize()
                     .help(L("AI 整理逐字稿：修錯字、標點、贅字，看過再套用", "Clean Up Transcript with AI: fix typos, punctuation and filler words, review before applying"))
                     .disabled(chat.running || cleanup != nil)
                 Button(action: reset) { Image(systemName: "square.and.pencil") }

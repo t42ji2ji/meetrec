@@ -32,8 +32,8 @@ final class TranscriptCleanup: ObservableObject {
     /// 同時跑幾批
     static let parallel = 3
 
-    static let instruction = L("修正錯字和同音錯字、補上標點，去掉嗯、呃、那個這類贅字。保持原本的語言和說話的口氣，不要改成書面語，不要翻譯。",
-                               "Fix typos and misheard words, add punctuation, and remove filler words like um and uh. Keep the original language and speaking tone; don't make it formal and don't translate.")
+    static let instruction = L("修正錯字和同音錯字，去掉嗯、呃、那個這類贅字。保持原本的語言和說話的口氣，不要改成書面語，不要翻譯。",
+                               "Fix typos and misheard words, and remove filler words like um and uh. Keep the original language and speaking tone; don't make it formal and don't translate.")
 
     init(editor: TranscriptEditor, kind: AssistantKind, tool: URL, path: String, model: String?, instruction: String? = nil) {
         self.editor = editor
@@ -90,10 +90,16 @@ final class TranscriptCleanup: ObservableObject {
             guard let m = line.firstMatch(of: #/^\s*\[(\d+)\]\s*(.*)$/#), let n = Int(m.1), (1...batch.count).contains(n) else { continue }
             let s = batch[n - 1]
             let revised = Settings.script.convert(String(m.2).trimmingCharacters(in: .whitespaces))
-            guard !revised.isEmpty, revised != s.text else { continue }
+            // 只差標點、空白的不列，一句一句勾很煩
+            guard !revised.isEmpty, Self.bare(revised) != Self.bare(s.text) else { continue }
             changes.append(Change(id: s.id, start: s.start, original: s.text, revised: revised))
         }
         changes.sort { $0.start < $1.start }
+    }
+
+    private static func bare(_ text: String) -> String {
+        let skip = CharacterSet.punctuationCharacters.union(.symbols).union(.whitespacesAndNewlines)
+        return String(String.UnicodeScalarView(text.unicodeScalars.filter { !skip.contains($0) }))
     }
 
     /// 還沒跑完時預估剩下幾秒；第一批回來前不知道
