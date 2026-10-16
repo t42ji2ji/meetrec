@@ -301,7 +301,7 @@ final class DashboardModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([r.folder])
     }
 
-    enum ExportFormat: String { case srt, txt }
+    enum ExportFormat: String { case srt, txt, pdf }
 
     func export(_ r: Library.Recording, as format: ExportFormat) {
         if editor?.recording.url == r.url { editor?.flush() }
@@ -312,7 +312,11 @@ final class DashboardModel: ObservableObject {
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            try (format == .srt ? t.srt() : t.txt()).write(to: url, atomically: true, encoding: .utf8)
+            switch format {
+            case .srt: try t.srt().write(to: url, atomically: true, encoding: .utf8)
+            case .txt: try t.txt().write(to: url, atomically: true, encoding: .utf8)
+            case .pdf: try t.pdf(title: r.name, subtitle: r.dateText).write(to: url, options: .atomic)
+            }
         } catch {
             self.error = "\(error)"
         }

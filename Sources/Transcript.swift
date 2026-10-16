@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// 一份逐字稿。存在音檔旁邊的隱藏檔「.<音檔檔名>.transcript.json」；每次 save 同時匯出 .srt 和 .txt，
 /// 所以手動修正也會反映在 srt/txt。
@@ -58,21 +58,65 @@ struct Transcript: Codable, Equatable {
         }.joined(separator: "\n")
     }
 
-    /// 同一個人連續講的併成一行，時間標在開頭；超過 30 秒就另起一行
-    func txt() -> String {
-        var lines: [String] = []
-        var last = "", lineStart = 0.0
+    /// 同一個人連續講的併成一段；超過 30 秒就另起一段
+    private var paragraphs: [(start: Double, speaker: String, text: String)] {
+        var out: [(start: Double, speaker: String, text: String)] = []
         for s in segments {
-            if !lines.isEmpty, s.speaker == last, s.start - lineStart < 30 {
+            if let p = out.last, s.speaker == p.speaker, s.start - p.start < 30 {
                 // 英文句子用空白接，中文用逗號
-                lines[lines.count - 1] += (s.text.first?.isASCII == true ? " " : "，") + s.text
+                out[out.count - 1].text += (s.text.first?.isASCII == true ? " " : "，") + s.text
             } else {
-                lines.append("[\(Self.clock(s.start))] \(label(s.speaker))\(s.text)")
-                last = s.speaker
-                lineStart = s.start
+                out.append((s.start, s.speaker, s.text))
             }
         }
-        return lines.joined(separator: "\n") + "\n"
+        return out
+    }
+
+    /// 一段一行，時間標在開頭
+    func txt() -> String {
+        paragraphs.map { "[\(Self.clock($0.start))] \(label($0.speaker))\($0.text)" }.joined(separator: "\n") + "\n"
+    }
+
+    /// A4 分頁的 PDF：標題、日期，接著每段「時間 說話者」一行、內文一行
+    func pdf(title: String, subtitle: String) -> Data {
+        let body = NSMutableAttributedString()
+        func add(_ text: String, _ font: NSFont, _ color: NSColor = .black, after: CGFloat) {
+            let style = NSMutableParagraphStyle()
+            style.paragraphSpacing = after
+            style.lineSpacing = 2
+            body.append(NSAttributedString(string: text + "\n", attributes: [.font: font, .foregroundColor: color, .paragraphStyle: style]))
+        }
+        add(title, .systemFont(ofSize: 20, weight: .semibold), after: 4)
+        add(subtitle, .systemFont(ofSize: 11), .darkGray, after: 20)
+        for p in paragraphs {
+            let head = NSMutableAttributedString(string: Self.clock(p.start), attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular), .foregroundColor: NSColor.gray])
+            let n = name(p.speaker)
+            if !n.isEmpty { head.append(NSAttributedString(string: "  " + n, attributes: [.font: NSFont.systemFont(ofSize: 10, weight: .semibold), .foregroundColor: NSColor.darkGray])) }
+            let style = NSMutableParagraphStyle()
+            style.paragraphSpacing = 2
+            head.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: head.length))
+            body.append(head)
+            body.append(NSAttributedString(string: "\n"))
+            add(p.text, .systemFont(ofSize: 11), after: 12)
+        }
+
+        var page = CGRect(x: 0, y: 0, width: 595, height: 842)
+        let frame = page.insetBy(dx: 56, dy: 56)
+        let data = NSMutableData()
+        let ctx = CGContext(consumer: CGDataConsumer(data: data)!, mediaBox: &page, nil)!
+        let setter = CTFramesetterCreateWithAttributedString(body)
+        var at = 0
+        repeat {
+            ctx.beginPDFPage(nil)
+            let f = CTFramesetterCreateFrame(setter, CFRange(location: at, length: 0), CGPath(rect: frame, transform: nil), nil)
+            CTFrameDraw(f, ctx)
+            let shown = CTFrameGetVisibleStringRange(f).length
+            ctx.endPDFPage()
+            if shown == 0 { break }
+            at += shown
+        } while at < body.length
+        ctx.closePDF()
+        return data as Data
     }
 
     /// mm:ss，超過一小時 h:mm:ss

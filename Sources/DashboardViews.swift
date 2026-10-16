@@ -50,6 +50,7 @@ struct DashboardView: View {
                 Menu {
                     Button(L("匯出 SRT…", "Export SRT…")) { if let r { model.export(r, as: .srt) } }
                     Button(L("匯出 TXT…", "Export TXT…")) { if let r { model.export(r, as: .txt) } }
+                    Button(L("匯出 PDF…", "Export PDF…")) { if let r { model.export(r, as: .pdf) } }
                 } label: { Label(L("匯出", "Export"), systemImage: "square.and.arrow.up") }
                     .help(L("匯出逐字稿", "Export transcript"))
                     .disabled(!has)
@@ -391,6 +392,7 @@ private struct RecordingActions: View {
         .disabled(busy)
         Button(L("匯出 SRT…", "Export SRT…")) { model.export(recording, as: .srt) }.disabled(!has)
         Button(L("匯出 TXT…", "Export TXT…")) { model.export(recording, as: .txt) }.disabled(!has)
+        Button(L("匯出 PDF…", "Export PDF…")) { model.export(recording, as: .pdf) }.disabled(!has)
         Divider()
         Button(L("移到垃圾桶…", "Move to Trash…"), role: .destructive) { model.deleting = recording }
     }
