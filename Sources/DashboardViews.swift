@@ -398,6 +398,7 @@ private struct RecordingActions: View {
         }.disabled(!has)
         Divider()
         Button(L("移到垃圾桶…", "Move to Trash…"), role: .destructive) { model.deleting = recording }
+            .keyboardShortcut(.delete, modifiers: .command)
     }
 }
 

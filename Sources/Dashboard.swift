@@ -81,6 +81,7 @@ final class Dashboard: NSObject, NSWindowDelegate {
     }
 
     @objc private func importFiles() { model.importing = true }
+    @objc private func moveToTrash() { model.deleting = model.selectedRecording }
     /// 開著逐字稿就是在逐字稿裡找，不然找錄音
     @objc private func find() {
         guard let editor = model.editor else { return model.focusSearch() }
@@ -115,6 +116,9 @@ final class Dashboard: NSObject, NSWindowDelegate {
         aboutItem.target = self
         let importItem = item(L("匯入…", "Import…"), "importFiles", "o")
         importItem.target = self
+        // ⌘⌫，跟 Finder 一樣
+        let trashItem = item(L("移到垃圾桶…", "Move to Trash…"), "moveToTrash", "\u{8}")
+        trashItem.target = self
         let findItem = item(L("尋找並取代…", "Find and Replace…"), "find", "f")
         findItem.target = self
         let searchItem = item(L("搜尋錄音", "Search Recordings"), "searchRecordings", "f", [.command, .option])
@@ -131,7 +135,7 @@ final class Dashboard: NSObject, NSWindowDelegate {
         [bigger, biggerEquals, smaller, actual].forEach { $0.target = self }
         // ⌘Q 只關視窗：MeetRec 平常住在選單列，錄音中按 ⌘Q 不能把錄音停掉。真的要結束用選單列的「結束 MeetRec」
         add("MeetRec", [aboutItem, .separator(), settingsItem, .separator(), item(L("隱藏 MeetRec", "Hide MeetRec"), "hide:", "h"), .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "q"), item(L("結束 MeetRec", "Quit MeetRec"), "terminate:", "")])
-        add(L("檔案", "File"), [importItem, .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "w")])
+        add(L("檔案", "File"), [importItem, .separator(), trashItem, .separator(), item(L("關閉視窗", "Close Window"), "performClose:", "w")])
         add(L("編輯", "Edit"), [item(L("還原", "Undo"), "undo:", "z"), item(L("重做", "Redo"), "redo:", "z", [.command, .shift]), .separator(),
                      item(L("剪下", "Cut"), "cut:", "x"), item(L("拷貝", "Copy"), "copy:", "c"), item(L("貼上", "Paste"), "paste:", "v"), item(L("全選", "Select All"), "selectAll:", "a"), .separator(), findItem, searchItem])
         add(L("顯示方式", "View"), [bigger, biggerEquals, smaller, actual])
@@ -168,5 +172,13 @@ final class DropHostingView: NSHostingView<DashboardView> {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         model?.dropTargeted = false
         return model?.importFiles(urls(sender)) ?? false
+    }
+}
+
+extension Dashboard: NSMenuItemValidation {
+    /// 打字時 ⌘⌫ 要留給文字框（刪到行首），選單項目關掉按鍵才會傳下去
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        guard item.action == #selector(moveToTrash) else { return true }
+        return model.selectedRecording != nil && !(window?.firstResponder is NSText)
     }
 }
