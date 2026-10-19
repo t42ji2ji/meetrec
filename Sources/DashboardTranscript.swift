@@ -560,7 +560,7 @@ struct TranscriptView: View {
 
     private var legend: some View {
         let total = max(editor.talk.values.reduce(0, +), 1)
-        return ScrollView(.horizontal, showsIndicators: false) {
+        return DragScroll {
             HStack(spacing: 16) {
                 ForEach(editor.transcript.speakerOrder, id: \.self) { key in
                     HStack(spacing: 6) {
@@ -659,6 +659,39 @@ final class CaretPlacer {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
         point = nil
+    }
+}
+
+/// 橫向捲動：滑鼠可以按住左右拖，不顯示捲軸，還有內容的那一側淡出暗示
+private struct DragScroll<Content: View>: View {
+    @ViewBuilder var content: Content
+    @State private var position = ScrollPosition()
+    @State private var offset: CGFloat = 0
+    @State private var maxOffset: CGFloat = 0
+    @State private var dragStart: CGFloat?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) { content }
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: [CGFloat].self) { g in
+                [g.contentOffset.x, max(g.contentSize.width - g.containerSize.width, 0)]
+            } action: { _, v in
+                offset = v[0]; maxOffset = v[1]
+            }
+            .simultaneousGesture(DragGesture(minimumDistance: 4).onChanged { v in
+                let start = dragStart ?? offset
+                dragStart = start
+                position.scrollTo(x: min(max(start - v.translation.width, 0), maxOffset))
+            }.onEnded { _ in dragStart = nil })
+            .mask {
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: offset > 1 ? 32 : 0)
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: offset < maxOffset - 1 ? 32 : 0)
+                }
+            }
     }
 }
 
