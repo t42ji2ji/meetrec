@@ -28,7 +28,7 @@ The meeting recorder for your Mac's menu bar that knows who said what.
 
 <img src="site/assets/ai-sidebar.png" width="640" alt="AI chat side panel next to the transcript">
 
-**Import files and links.** Drop in audio or video, or paste a YouTube, podcast or Spotify episode link, and it's transcribed the same way.
+**Import files and links.** Drop in audio or video, or paste a link from YouTube, Bilibili, X, TikTok, SoundCloud, a podcast or a Spotify episode, and it's transcribed the same way.
 
 Also: asks to record when a Google Meet, Teams or Slack huddle starts; transcribes on your Mac with whisper.cpp (Chinese and English), or in the cloud with your own Groq or OpenAI key; vocabulary hints; edit, search, and export to SRT or TXT.
 

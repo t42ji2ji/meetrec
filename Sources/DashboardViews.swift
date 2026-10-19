@@ -29,17 +29,17 @@ struct DashboardView: View {
             // 錄音放最前面、自成一顆，不跟重新轉錄那些混在一起
             ToolbarItem(placement: .navigation) { RecordButton() }
             ToolbarItem(placement: .navigation) {
-                // 圖示旁邊放 YouTube、Podcast、Spotify 的 logo，一看就知道網址也能匯入
+                // 圖示旁邊放 YouTube、Bilibili、X、Podcast、Spotify 的 logo，一看就知道網址也能匯入
                 Button { model.importing = true } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "square.and.arrow.down")
-                        ForEach(LinkSource.allCases, id: \.self) { s in
+                        ForEach(LinkSource.toolbar, id: \.self) { s in
                             LogoMark(name: "\(s)", color: s.color, size: 13)
                         }
                     }
                     .padding(.horizontal, 4)
                 }
-                    .help(L("匯入音檔、影片，或 YouTube、Podcast、Spotify 網址", "Import audio, video, or a YouTube, podcast or Spotify link"))
+                    .help(L("匯入音檔、影片，或 YouTube、Bilibili、X、Podcast 等網址", "Import audio, video, or a link from YouTube, Bilibili, X, podcasts and more"))
             }
             // 放在最外層、一直都在：切換錄音時工具列不用重建
             ToolbarItemGroup(placement: .primaryAction) {

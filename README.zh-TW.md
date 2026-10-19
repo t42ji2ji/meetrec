@@ -28,7 +28,7 @@
 
 <img src="site/assets/ai-sidebar.png" width="640" alt="逐字稿旁的 AI 對話側欄">
 
-**匯入檔案和連結。** 拖進音檔或影片，或貼上 YouTube、Podcast、Spotify 單集連結，一樣轉成逐字稿。
+**匯入檔案和連結。** 拖進音檔或影片，或貼上 YouTube、Bilibili、X、TikTok、SoundCloud、Podcast 或 Spotify 單集連結，一樣轉成逐字稿。
 
 其他：Google Meet、Teams、Slack huddle 開始時問要不要錄；用 whisper.cpp 在本機轉錄（中英文），或用你自己的 Groq、OpenAI key 雲端轉錄；常用詞提示；改字、搜尋、匯出 SRT／TXT。
 

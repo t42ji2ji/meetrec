@@ -430,7 +430,7 @@ final class DashboardModel: ObservableObject {
         return true
     }
 
-    /// YouTube、Podcast、Spotify 網址：下載完照一般匯入轉逐字稿
+    /// YouTube、Bilibili、X、Podcast、Spotify 等網址：下載完照一般匯入轉逐字稿
     func importLink(_ text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let link = URL(string: text), link.scheme?.hasPrefix("http") == true, link.host != nil else {

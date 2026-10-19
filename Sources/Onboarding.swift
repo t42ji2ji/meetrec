@@ -245,7 +245,7 @@ private struct OnboardingView: View {
                 }
                 VStack(alignment: .leading, spacing: 14) {
                     point(L("錄下會議，每一句都標好說話者", "Record a meeting, every line labeled by speaker"))
-                    point(L("貼 YouTube、Podcast 網址也能轉", "Paste a YouTube or podcast link, too"), brands: ["youtube", "applepodcasts"])
+                    point(L("貼 YouTube、Bilibili、X、Podcast 網址也能轉", "Paste a YouTube, Bilibili, X or podcast link, too"), brands: ["youtube", "bilibili", "x", "applepodcasts"])
                     point(L("按 ⌘E 請 Claude Code 或 Codex 整理待辦", "Press ⌘E for action items from Claude Code or Codex"), brands: ["claude", "codex"])
                 }
             }
@@ -488,8 +488,8 @@ private struct OnboardingView: View {
                     L("瀏覽器或 Slack 開始用麥克風時就會問。也可以從選單列手動開始。", "It asks when your browser or Slack starts using the mic. You can also start from the menu bar."),
                     brands: ["googlemeet", "microsoftteams", "slack"])
                 tip("square.and.arrow.down", Palette.speakers[1], L("匯入現有的錄音", "Import what you have"),
-                    L("把音檔拖進來，或貼上 YouTube、Podcast 網址。", "Drag in audio files, or paste a YouTube or podcast link."),
-                    brands: ["youtube", "applepodcasts", "spotify"])
+                    L("把音檔拖進來，或貼上 YouTube、Bilibili、X、Podcast 網址。", "Drag in audio files, or paste a YouTube, Bilibili, X or podcast link."),
+                    brands: ["youtube", "bilibili", "x", "applepodcasts"])
                 tip("sparkles", Palette.speakers[3], L("問你的 agent", "Ask your agent"),
                     L("打開一場會議按 ⌘E，請 Claude Code 或 Codex 整理。", "Open a meeting and press ⌘E to ask Claude Code or Codex."),
                     brands: ["claude", "codex"])
@@ -598,6 +598,7 @@ private struct BrandMark: View {
         "microsoftteams": Color(red: 0.38, green: 0.39, blue: 0.65),
         "slack": Color(red: 0.88, green: 0.12, blue: 0.35),
         "youtube": Color(red: 1, green: 0, blue: 0),
+        "bilibili": Color(red: 0, green: 0.63, blue: 0.84),
         "applepodcasts": Color(red: 0.6, green: 0.2, blue: 0.8),
         "spotify": Color(red: 0.12, green: 0.84, blue: 0.38),
         "claude": Color(red: 0.85, green: 0.47, blue: 0.34),

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 匯入：拖檔案、選檔案，或貼 YouTube／Podcast／Spotify 網址
+/// 匯入：拖檔案、選檔案，或貼 YouTube／Bilibili／X／Podcast 等網址
 struct ImportSheet: View {
     let chooseFiles: () -> Void
     /// 回傳有沒有收（只收聲音和影片）
@@ -76,15 +76,15 @@ struct ImportSheet: View {
             .padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .textBackgroundColor)))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.3)))
-            HStack(spacing: 16) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: 4), alignment: .leading, spacing: 8) {
                 ForEach(LinkSource.allCases, id: \.self) { s in
                     // 認出是哪個平台就只亮那個
                     SourceBadge(source: s).opacity(detected == nil || detected == s ? 1 : 0.3)
                 }
             }
             .animation(.easeOut(duration: 0.15), value: detected)
-            Text(L("Spotify 的音檔有版權保護，會改從 Apple Podcasts 下載同一集；Spotify 獨家節目沒辦法匯入。",
-                   "Spotify audio is copy-protected, so the same episode is downloaded from Apple Podcasts instead. Spotify exclusives can’t be imported."))
+            Text(L("其他影音網站的網址也可以試試。Spotify 的音檔有版權保護，會改從 Apple Podcasts 下載同一集；Spotify 獨家節目沒辦法匯入。",
+                   "Links from other video and audio sites often work, too. Spotify audio is copy-protected, so the same episode is downloaded from Apple Podcasts instead. Spotify exclusives can’t be imported."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -107,30 +107,55 @@ struct ImportSheet: View {
     }
 }
 
+/// 實際用 yt-dlp 抓過、AVFoundation 讀得了的平台。Vimeo、Instagram、抖音要登入，TED、Niconico 抓不到，不列
 enum LinkSource: CaseIterable {
-    case youtube, applepodcasts, spotify
+    case youtube, bilibili, x, tiktok, applepodcasts, spotify, soundcloud, facebook, twitch, dailymotion
+
+    /// 工具列放不下全部，只放這幾個
+    static let toolbar: [LinkSource] = [.youtube, .bilibili, .x, .applepodcasts, .spotify]
 
     init?(_ url: URL) {
         let host = url.host?.lowercased() ?? ""
-        if host.hasSuffix("youtube.com") || host == "youtu.be" { self = .youtube }
+        func on(_ domains: String...) -> Bool { domains.contains { host == $0 || host.hasSuffix("." + $0) } }
+        if on("youtube.com", "youtu.be") { self = .youtube }
+        else if on("bilibili.com", "b23.tv") { self = .bilibili }
+        else if on("x.com", "twitter.com") { self = .x }
+        else if on("tiktok.com") { self = .tiktok }
         else if host == "podcasts.apple.com" { self = .applepodcasts }
-        else if host.hasSuffix("spotify.com") { self = .spotify }
+        else if on("spotify.com") { self = .spotify }
+        else if on("soundcloud.com") { self = .soundcloud }
+        else if on("facebook.com", "fb.watch") { self = .facebook }
+        else if on("twitch.tv") { self = .twitch }
+        else if on("dailymotion.com", "dai.ly") { self = .dailymotion }
         else { return nil }
     }
 
     var name: String {
         switch self {
         case .youtube: "YouTube"
-        case .applepodcasts: "Apple Podcasts"
+        case .bilibili: "Bilibili"
+        case .x: "X"
+        case .tiktok: "TikTok"
+        case .applepodcasts: "Podcasts"
         case .spotify: "Spotify"
+        case .soundcloud: "SoundCloud"
+        case .facebook: "Facebook"
+        case .twitch: "Twitch"
+        case .dailymotion: "Dailymotion"
         }
     }
 
+    /// X、TikTok、Dailymotion 的 logo 是黑色，用 primary 才跟得上深色模式
     var color: Color {
         switch self {
         case .youtube: Color(red: 1, green: 0, blue: 0)
+        case .bilibili: Color(red: 0, green: 0.63, blue: 0.84)
         case .applepodcasts: Color(red: 0.6, green: 0.2, blue: 0.8)
         case .spotify: Color(red: 0.12, green: 0.84, blue: 0.38)
+        case .soundcloud: Color(red: 1, green: 0.33, blue: 0)
+        case .facebook: Color(red: 0.03, green: 0.4, blue: 1)
+        case .twitch: Color(red: 0.57, green: 0.27, blue: 1)
+        case .x, .tiktok, .dailymotion: .primary
         }
     }
 
