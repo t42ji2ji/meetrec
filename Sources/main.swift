@@ -51,12 +51,13 @@ final class PromptPanel: NSPanel {
         contentView = container
     }
 
-    func show(symbol: String, title: String, subtitle: String, buttons: [(String, Bool, () -> Void)], hideAfter: Double? = nil) {
+    /// tint：圖示和主要按鈕的顏色；完成類的提示用綠色，一眼看得出是成功
+    func show(symbol: String, title: String, subtitle: String, buttons: [(String, Bool, () -> Void)], hideAfter: Double? = nil, tint: NSColor = .systemRed) {
         effect.subviews.forEach { $0.removeFromSuperview() }
 
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)!)
         icon.symbolConfiguration = .init(pointSize: 28, weight: .regular)
-        icon.contentTintColor = .systemRed
+        icon.contentTintColor = tint
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         titleLabel.textColor = .white
@@ -70,9 +71,11 @@ final class PromptPanel: NSPanel {
         text.spacing = 2
 
         let pills = buttons.map { (label, primary, action) in
-            PillButton(title: label, primary: primary) { [weak self] in self?.dismiss(); action() }
+            PillButton(title: label, primary: primary, tint: tint) { [weak self] in self?.dismiss(); action() }
         }
-        let row = NSStackView(views: pills)
+        let close = CloseButton { [weak self] in self?.dismiss() }
+        close.toolTip = L("關閉", "Close")
+        let row = NSStackView(views: pills + [close])
         row.spacing = 8
 
         let stack = NSStackView(views: [icon, text, row])
@@ -123,16 +126,18 @@ final class PassThroughView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// 膠囊按鈕：主要＝紅底，次要＝半透明白底；hover 變亮、按下變暗
+/// 膠囊按鈕：主要＝tint 底（預設紅），次要＝半透明白底；hover 變亮、按下變暗
 final class PillButton: NSView {
     private let label = NSTextField(labelWithString: "")
     private let primary: Bool
+    private let tint: NSColor
     private let handler: () -> Void
     private var hovering = false { didSet { updateColor() } }
     private var pressing = false { didSet { updateColor() } }
 
-    init(title: String, primary: Bool, action: @escaping () -> Void) {
+    init(title: String, primary: Bool, tint: NSColor = .systemRed, action: @escaping () -> Void) {
         self.primary = primary
+        self.tint = tint
         handler = action
         super.init(frame: .zero)
         wantsLayer = true
@@ -154,9 +159,52 @@ final class PillButton: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func updateColor() {
-        let base: NSColor = primary ? .systemRed : NSColor.white.withAlphaComponent(0.14)
+        let base: NSColor = primary ? tint : NSColor.white.withAlphaComponent(0.14)
         let c = pressing ? base.shadow(withLevel: 0.2)! : hovering ? base.highlight(withLevel: primary ? 0.15 : 0.12)! : base
         layer?.backgroundColor = c.cgColor
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; pressing = false }
+    override func mouseDown(with event: NSEvent) { pressing = true }
+    override func mouseUp(with event: NSEvent) {
+        pressing = false
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { handler() }
+    }
+}
+
+/// 膠囊最右邊的小圓形關閉鈕；hover 變亮、按下變暗
+final class CloseButton: NSView {
+    private let handler: () -> Void
+    private var hovering = false { didSet { updateColor() } }
+    private var pressing = false { didSet { updateColor() } }
+
+    init(action: @escaping () -> Void) {
+        handler = action
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 11
+        let icon = NSImageView(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: L("關閉", "Close"))!)
+        icon.symbolConfiguration = .init(pointSize: 9, weight: .bold)
+        icon.contentTintColor = NSColor.white.withAlphaComponent(0.75)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(icon)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 22),
+            heightAnchor.constraint(equalToConstant: 22),
+            icon.centerXAnchor.constraint(equalTo: centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        updateColor()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func updateColor() {
+        let alpha = pressing ? 0.08 : hovering ? 0.24 : 0.14
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(alpha).cgColor
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -186,6 +234,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var titleTimer: Timer?
     private let library = Library.shared
     private var folder: URL { library.folder }
+
+    /// 已經在跑時再從 Spotlight、Launchpad、Finder 打開：沒視窗的話系統什麼都不做，app 就停在背景，要自己開主視窗拉到前面
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        Dashboard.shared.show()
+        return false
+    }
 
     func applicationDidFinishLaunching(_ note: Notification) {
         AVCaptureDevice.requestAccess(for: .audio) { _ in }
@@ -228,7 +282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async {
                 self.panel.show(symbol: "checkmark.circle.fill", title: L("已補存上次中斷的錄音", "Saved the interrupted recording"),
                                 subtitle: saved.map { $0.deletingLastPathComponent().lastPathComponent }.joined(separator: L("、", ", ")),
-                                buttons: [(L("打開", "Open"), false, { Dashboard.shared.show(select: saved.first) })])
+                                buttons: [(L("打開", "Open"), false, { Dashboard.shared.show(select: saved.first) })], tint: .systemGreen)
                 if Settings.autoTranscribe { saved.forEach { self.library.transcribe($0) } }
             }
         }
@@ -307,7 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let url = name.flatMap { try? self.library.rename(audio: finalized, to: $0) } ?? finalized
                 self.library.recordingFile = nil
                 self.panel.show(symbol: "checkmark.circle.fill", title: L("已存檔", "Saved"), subtitle: url.lastPathComponent,
-                                buttons: [(L("打開", "Open"), false, { Dashboard.shared.show(select: url) })], hideAfter: 4)
+                                buttons: [(L("打開", "Open"), false, { Dashboard.shared.show(select: url) })], hideAfter: 4, tint: .systemGreen)
                 if Settings.autoTranscribe { self.library.transcribe(url) }
             }
         }
@@ -318,7 +372,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let message {
             panel.show(symbol: "exclamationmark.triangle.fill", title: L("錄音出狀況", "Recording problem"), subtitle: message, buttons: [(L("好", "OK"), true, {})])
         } else if problem != nil {
-            panel.show(symbol: "checkmark.circle.fill", title: L("錄音已恢復", "Recording resumed"), subtitle: L("從剛才中斷的地方接著錄", "Continuing from where it stopped"), buttons: [], hideAfter: 3)
+            panel.show(symbol: "checkmark.circle.fill", title: L("錄音已恢復", "Recording resumed"), subtitle: L("從剛才中斷的地方接著錄", "Continuing from where it stopped"), buttons: [], hideAfter: 3, tint: .systemGreen)
         }
         problem = message
         updateStatus()
@@ -328,8 +382,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatus()
         switch result {
         case .success:
-            panel.show(symbol: "text.bubble.fill", title: L("逐字稿好了", "Transcript ready"), subtitle: url.deletingPathExtension().lastPathComponent,
-                       buttons: [(L("打開", "Open"), true, { Dashboard.shared.show(select: url) })], hideAfter: 8)
+            panel.show(symbol: "checkmark.circle.fill", title: L("逐字稿好了", "Transcript ready"), subtitle: url.deletingPathExtension().lastPathComponent,
+                       buttons: [(L("打開", "Open"), true, { Dashboard.shared.show(select: url) })], hideAfter: 8, tint: .systemGreen)
         case .failure(let error):
             // 缺模型的話直接給去設定的路
             let buttons: [(String, Bool, () -> Void)] = Models.ready ? [(L("好", "OK"), true, {})]

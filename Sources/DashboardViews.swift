@@ -19,7 +19,8 @@ struct DashboardView: View {
                     .frame(minWidth: 360, maxWidth: .infinity)
                 if model.chatOpen {
                     AssistantPanel(model: model)
-                        .frame(minWidth: 280, idealWidth: 340, maxWidth: 560)
+                        // 不設上限：拖多寬由使用者決定，中間那欄的 minWidth 保住逐字稿
+                        .frame(minWidth: 280, idealWidth: 340, maxWidth: .infinity)
                 }
             }
         }
