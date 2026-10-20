@@ -671,6 +671,7 @@ private struct PlayerBar: View {
     /// 拖曳中的位置；放開才 seek，拖的時候不被播放時間蓋掉
     @State private var dragging: Double?
     @AppStorage("videoSideBySide") private var sideBySide = false
+    @AppStorage("subtitleScale") private var subtitleScale = 1.0
 
     var body: some View {
         HStack(spacing: 14) {
@@ -708,6 +709,14 @@ private struct PlayerBar: View {
             .fixedSize()
             .help(L("播放速度", "Playback speed"))
             if player.hasVideo {
+                HStack(spacing: 6) {
+                    Button { subtitleScale = max(subtitleScale - 0.15, 0.55) } label: { Image(systemName: "textformat.size.smaller") }
+                        .disabled(subtitleScale <= 0.55)
+                        .help(L("字幕縮小", "Smaller subtitles"))
+                    Button { subtitleScale = min(subtitleScale + 0.15, 2.5) } label: { Image(systemName: "textformat.size.larger") }
+                        .disabled(subtitleScale >= 2.5)
+                        .help(L("字幕放大", "Larger subtitles"))
+                }
                 // 圖示是按下去會變成的樣子
                 Button { sideBySide.toggle() } label: { Image(systemName: sideBySide ? "rectangle.split.1x2" : "rectangle.split.2x1") }
                     .help(sideBySide ? L("影片放上面、逐字稿在下面", "Video on top, transcript below") : L("影片放左邊、逐字稿在右邊", "Video on the left, transcript on the right"))
@@ -1732,11 +1741,13 @@ private struct VideoPane: View {
     struct Subtitle: View {
         @ObservedObject var editor: TranscriptEditor
         @ObservedObject var playing: TranscriptEditor.Playing
+        /// 播放列上的字幕大小按鈕調的倍率
+        @AppStorage("subtitleScale") private var scale = 1.0
 
         var body: some View {
             GeometryReader { g in
                 // 全螢幕時字變大；底下留位置給浮動控制列
-                let size = min(max(g.size.height / 18, 15), 40)
+                let size = min(max(g.size.height / 18, 15), 40) * scale
                 VStack {
                     Spacer()
                     if let id = playing.id, let s = editor.transcript.segments.first(where: { $0.id == id }), !s.text.isEmpty {
