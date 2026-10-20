@@ -478,13 +478,22 @@ private struct RecordingDetail: View {
     /// title 是哪一場的標題：換錄音時欄位還沒失焦，不能把舊的字套到新的錄音上
     @State private var titleURL: URL?
     @FocusState private var editingTitle: Bool
+    @AppStorage("videoSideBySide") private var sideBySide = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            VideoSlot(player: model.player, url: recording.url, editor: model.editor.flatMap { $0.recording.url == recording.url ? $0 : nil })
-            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+            let video = VideoSlot(player: model.player, url: recording.url, editor: model.editor.flatMap { $0.recording.url == recording.url ? $0 : nil }, sideBySide: sideBySide)
+            if sideBySide {
+                HStack(spacing: 0) {
+                    video
+                    content.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                video
+                content.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
             Divider()
             PlayerBar(player: model.player, clock: model.player.clock,
                       editor: model.editor.flatMap { $0.recording.url == recording.url ? $0 : nil })
@@ -661,6 +670,7 @@ private struct PlayerBar: View {
     let editor: TranscriptEditor?
     /// 拖曳中的位置；放開才 seek，拖的時候不被播放時間蓋掉
     @State private var dragging: Double?
+    @AppStorage("videoSideBySide") private var sideBySide = false
 
     var body: some View {
         HStack(spacing: 14) {
@@ -697,6 +707,11 @@ private struct PlayerBar: View {
             .labelsHidden()
             .fixedSize()
             .help(L("播放速度", "Playback speed"))
+            if player.hasVideo {
+                // 圖示是按下去會變成的樣子
+                Button { sideBySide.toggle() } label: { Image(systemName: sideBySide ? "rectangle.split.1x2" : "rectangle.split.2x1") }
+                    .help(sideBySide ? L("影片放上面、逐字稿在下面", "Video on top, transcript below") : L("影片放左邊、逐字稿在右邊", "Video on the left, transcript on the right"))
+            }
         }
         .font(.body)
         .buttonStyle(.borderless)
@@ -1619,21 +1634,48 @@ private struct VideoSlot: View {
     @ObservedObject var player: DashboardPlayer
     let url: URL
     let editor: TranscriptEditor?
+    let sideBySide: Bool
 
     var body: some View {
-        if player.hasVideo && player.url == url { VideoPane(player: player, editor: editor) }
+        if player.hasVideo && player.url == url { VideoPane(player: player, editor: editor, sideBySide: sideBySide) }
     }
 }
 
-/// 匯入的影片：畫面放在逐字稿上方，正在播的那一句疊在下面當字幕。
-/// 控制列用系統的浮動樣式，滑鼠移上去才出現（播放、拖進度、全螢幕）；全螢幕時字幕跟著走。下緣可以拖拉調整高度
+/// 匯入的影片：畫面放在逐字稿上方（或左邊），正在播的那一句疊在下面當字幕。
+/// 控制列用系統的浮動樣式，滑鼠移上去才出現（播放、拖進度、全螢幕）；全螢幕時字幕跟著走。下緣（或右緣）可以拖拉調整大小
 private struct VideoPane: View {
     let player: DashboardPlayer
     let editor: TranscriptEditor?
+    let sideBySide: Bool
     @AppStorage("videoHeight") private var height: Double = 280
+    @AppStorage("videoWidth") private var width: Double = 480
     @State private var dragStart: Double?
 
     var body: some View {
+        if sideBySide { side } else { stacked }
+    }
+
+    private var side: some View {
+        HStack(spacing: 0) {
+            VideoPlayer(player: player.player, subtitle: editor.map { Subtitle(editor: $0, playing: $0.playing) })
+                .frame(width: width)
+                .frame(maxHeight: .infinity)
+                .background(.black)
+            Divider()
+                .padding(.horizontal, 3)
+                .contentShape(Rectangle())
+                .padding(.horizontal, -3)
+                .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+                .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global).onChanged { v in
+                    let start = dragStart ?? width
+                    dragStart = start
+                    width = min(max(start + v.translation.width, 240), 1200)
+                }.onEnded { _ in dragStart = nil })
+                .help(L("拖拉調整影片大小", "Drag to resize the video"))
+        }
+    }
+
+    private var stacked: some View {
         VStack(spacing: 0) {
             VideoPlayer(player: player.player, subtitle: editor.map { Subtitle(editor: $0, playing: $0.playing) })
                 .frame(maxWidth: .infinity)
