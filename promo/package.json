@@ -8,7 +8,7 @@
     "music": "uv run --with numpy python scripts/music.py",
     "subs": "node scripts/subs.mjs",
     "music-soft": "uv run --with numpy python scripts/music-soft.py",
-    "features": "for c in Import Speakers Dual; do npx remotion render src/index.ts Feature$c out/raw-$c.mp4 --crf=20 && ffmpeg -y -v error -i out/raw-$c.mp4 -c:v copy -af loudnorm=I=-18:TP=-1.5 -c:a aac -b:a 160k -movflags +faststart out/feature-$(echo $c | tr A-Z a-z).mp4; done"
+    "features": "for c in Import Speakers Dual; do npx remotion render src/index.ts Feature$c out/raw-$c.mp4 --crf=20 && ffmpeg -y -v error -i out/raw-$c.mp4 -filter_complex \"[0:v]setpts=PTS/1.2,fps=30[v];[0:a]atempo=1.2,loudnorm=I=-18:TP=-1.5[a]\" -map \"[v]\" -map \"[a]\" -c:v libx264 -crf 20 -pix_fmt yuv420p -c:a aac -b:a 160k -movflags +faststart out/feature-$(echo $c | tr A-Z a-z).mp4; done"
   },
   "dependencies": {
     "@remotion/cli": "4.0.459",
