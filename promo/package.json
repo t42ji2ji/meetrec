@@ -6,7 +6,9 @@
     "studio": "npx remotion studio src/index.ts",
     "render": "npx remotion render src/index.ts Promo out/raw.mp4 --crf=20 && ffmpeg -y -v error -i out/raw.mp4 -c:v copy -af loudnorm=I=-16:TP=-1.5 -c:a aac -b:a 160k -movflags +faststart out/meetrec-promo.mp4 && npm run subs",
     "music": "uv run --with numpy python scripts/music.py",
-    "subs": "node scripts/subs.mjs"
+    "subs": "node scripts/subs.mjs",
+    "music-soft": "uv run --with numpy python scripts/music-soft.py",
+    "features": "for c in Import Speakers Dual; do npx remotion render src/index.ts Feature$c out/raw-$c.mp4 --crf=20 && ffmpeg -y -v error -i out/raw-$c.mp4 -c:v copy -af loudnorm=I=-18:TP=-1.5 -c:a aac -b:a 160k -movflags +faststart out/feature-$(echo $c | tr A-Z a-z).mp4; done"
   },
   "dependencies": {
     "@remotion/cli": "4.0.459",

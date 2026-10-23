@@ -9,8 +9,8 @@ import lines from "./lines.json";
 export const FPS = 30;
 export const TOTAL = 40;
 
-const { fontFamily } = loadFont("normal", { weights: ["400", "500", "600", "700", "800"], subsets: ["latin"] });
-const { fontFamily: mono } = loadMono("normal", { weights: ["400", "500"], subsets: ["latin"] });
+export const { fontFamily } = loadFont("normal", { weights: ["400", "500", "600", "700", "800"], subsets: ["latin"] });
+export const { fontFamily: mono } = loadMono("normal", { weights: ["400", "500"], subsets: ["latin"] });
 
 // 場景切換點（秒），對齊音樂小節
 const S = { hook: 0, label: 4, link: 14, ai: 24, end: 34 };
@@ -18,21 +18,21 @@ const S = { hook: 0, label: 4, link: 14, ai: 24, end: 34 };
 // 旁白：lines.json 的 at 是開始秒數，duration 由 scripts/voice.mjs 寫入
 const VO = Object.fromEntries(lines.map((l) => [l.id, l.at]));
 
-const C = {
+export const C = {
   bg: "#f3f3f0", ink: "#18181a", muted: "#66666c", line: "rgba(24,24,26,0.1)", sunk: "#ebebe7",
   Me: "#2f7cf6", Sarah: "#e8812f", Daniel: "#2f9d55", Priya: "#b84ccf", Host: "#2f7cf6", Guest: "#b84ccf",
 };
 type Who = "Me" | "Sarah" | "Daniel" | "Priya" | "Host" | "Guest";
 
-const sec = (s: number) => Math.round(s * FPS);
+export const sec = (s: number) => Math.round(s * FPS);
 
-const useSpring = (at: number, cfg = { damping: 14, mass: 0.6 }) => {
+export const useSpring = (at: number, cfg = { damping: 14, mass: 0.6 }) => {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
   return spring({ frame: f - sec(at), fps, config: cfg });
 };
 
-const fade = (f: number, a: number, b: number) =>
+export const fade = (f: number, a: number, b: number) =>
   interpolate(f, [sec(a), sec(b)], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
 
 const Chip: React.FC<{ who: Who; scale?: number; size?: number }> = ({ who, scale = 1, size = 22 }) => (
@@ -47,7 +47,7 @@ const Chip: React.FC<{ who: Who; scale?: number; size?: number }> = ({ who, scal
   </span>
 );
 
-const Card: React.FC<{ style?: React.CSSProperties; children: React.ReactNode }> = ({ style, children }) => (
+export const Card: React.FC<{ style?: React.CSSProperties; children: React.ReactNode }> = ({ style, children }) => (
   <div
     style={{
       background: "#fff", borderRadius: 26, overflow: "hidden",
@@ -59,7 +59,7 @@ const Card: React.FC<{ style?: React.CSSProperties; children: React.ReactNode }>
   </div>
 );
 
-const Caption: React.FC<{ at: number; out?: number; children: React.ReactNode; top?: number }> = ({ at, out, children, top = 90 }) => {
+export const Caption: React.FC<{ at: number; out?: number; children: React.ReactNode; top?: number }> = ({ at, out, children, top = 90 }) => {
   const f = useCurrentFrame();
   const s = useSpring(at);
   const gone = out ? fade(f, out, out + 0.25) : 0;
